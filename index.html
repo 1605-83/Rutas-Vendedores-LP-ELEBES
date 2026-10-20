@@ -112,13 +112,13 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .rbar label{display:inline-flex;align-items:center;gap:5px}.rbar label input{width:auto}
 .zlab{background:rgba(255,255,255,.85);border:0;border-radius:6px;box-shadow:none;color:#141A26;font:800 .78rem/1 Inter,system-ui,sans-serif;padding:3px 6px}
 .zlab:before{display:none}
-/* vendedor transmitiendo: una personita caminando con su numero (pedido de Bruno, 20/10/2026); sin señal reciente, gris y quieta */
+/* vendedor transmitiendo: una personita caminando con su numero (pedido de Bruno, 20/10/2026); fondo negro (pedido de Bruno); sin señal reciente, quieta */
 .cam{position:relative;width:40px;height:44px;display:flex;align-items:flex-end;justify-content:center}
-.cam .fig{width:34px;height:34px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+.cam .fig{width:34px;height:34px;border-radius:50%;background:#000;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
 .cam svg{width:22px;height:22px;fill:#fff;animation:pasos .9s ease-in-out infinite}
-.cam b{position:absolute;top:-6px;right:-10px;min-width:22px;padding:1px 5px;border-radius:999px;background:#141A26;color:#fff;font:800 .7rem/1.35 Inter,system-ui,sans-serif;text-align:center;border:2px solid #fff}
+.cam b{position:absolute;top:-6px;right:-10px;min-width:22px;padding:1px 5px;border-radius:999px;background:#000;color:#fff;font:800 .7rem/1.35 Inter,system-ui,sans-serif;text-align:center;border:2px solid #fff}
 .cam:after{content:"";position:absolute;bottom:-5px;left:50%;width:14px;height:4px;margin-left:-7px;border-radius:50%;background:rgba(0,0,0,.25)}
-.cam.viejo .fig{background:#8A94A6}.cam.viejo svg{animation:none}.cam.viejo b{background:#8A94A6}
+.cam.viejo svg{animation:none}
 @keyframes pasos{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-3px) rotate(4deg)}}
 @media (prefers-reduced-motion:reduce){.cam svg{animation:none}}
 .ley{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
