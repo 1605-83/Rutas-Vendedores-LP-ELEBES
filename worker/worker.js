@@ -13,12 +13,15 @@
 //   GET /posiciones                con clave: lastPositions (donde esta cada vendedor ahora)
 //   GET /visitas?fecha=AAAA-MM-DD  con clave: pasoPoprPDVAt (por que clientes paso cada uno y cuanto estuvo)
 //   GET /jornada?fecha=AAAA-MM-DD  con clave: primerUltimaVisitaAt (hora de inicio y fin)
+//   GET /clientes?vendedores=2,4,5 con clave: allClientsPositionByVendedor (donde esta cada cliente, para dibujar las rutas)
+//   GET /clientes-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
 // La clave del panel va en el encabezado "X-Clave".
 //
 // Axum Preventa (pedidos en vivo). Secretos: AXUM_PREV_USUARIO y AXUM_PREV_CLAVE.
 //   GET /prev-js                   sin clave: codigo JavaScript de las pantallas (como piden sus datos), para ajustar filtros
 //   GET /prev-forma?cmd=..&webmethod=..&...   sin clave: forma de la respuesta con los valores enmascarados
 //   GET /prev?cmd=..&webmethod=..&...         con clave: la respuesta completa
+//   GET /ventas?webmethod=..&...   sin clave: venta en vivo (SelectVendedoresAgrupados, GetIndicadoresDeVentas, SelectClientesDeVendedor)
 // Solo se permiten funciones de lectura (Get..., Select..., VerTabla).
 
 const AXUM = 'https://gps.axumvm.com.ar';
@@ -146,12 +149,42 @@ function forma(d) {
 }
 
 // lo pedido hace menos de CACHE_SEG se toma de la cache de Cloudflare
-async function conCache(clave, fn) {
+async function conCache(clave, fn, seg = CACHE_SEG) {
   const cache = caches.default, k = new Request('https://cache.local/' + encodeURIComponent(clave));
   const hit = await cache.match(k); if (hit) return hit.json();
   const datos = await fn();
-  await cache.put(k, new Response(JSON.stringify(datos), { headers: { 'Cache-Control': `max-age=${CACHE_SEG}` } }));
+  await cache.put(k, new Response(JSON.stringify(datos), { headers: { 'Cache-Control': `max-age=${seg}` } }));
   return datos;
+}
+
+// ubicacion de los clientes de un vendedor: Axum no documenta la forma, se aceptan textos "a,b,c" u objetos
+// y se devuelve siempre [{cli, lat, lng}] (latitud y longitud de la zona: lat -20..-56, lng -53..-75)
+const esLat = n => n < -20 && n > -56, esLng = n => n < -53 && n > -75;
+function puntos(d) {
+  let lista = Array.isArray(d) ? d : d && typeof d === 'object' ? (Object.values(d).find(Array.isArray) || []) : typeof d === 'string' ? d.split(/[;|\n]/) : [];
+  const out = [];
+  for (const x of lista) {
+    let cli = '', lat = NaN, lng = NaN;
+    if (typeof x === 'string' || Array.isArray(x)) {
+      const a = (Array.isArray(x) ? x : x.split(',')).map(s => String(s).trim()), n = a.map(Number);
+      const i = n.findIndex(esLat), j = n.findIndex((v, k) => k !== i && esLng(v));
+      if (i < 0 || j < 0) continue;
+      lat = n[i]; lng = n[j]; cli = a.find((s, k) => k !== i && k !== j && /^\d+$/.test(s)) || '';
+    } else if (x && typeof x === 'object') {
+      const k = Object.keys(x), val = re => { const c = k.find(c => re.test(c)); return c == null ? undefined : x[c]; };
+      lat = Number(val(/^lat/i)); lng = Number(val(/^(lng|lon)/i));
+      if (!isFinite(lat) || !isFinite(lng)) { const p = String(val(/point|posic|coord|ubic/i) || '').split(/[,; ]+/).map(Number); lat = p.find(esLat); lng = p.find(esLng); }
+      cli = String(val(/^(clientid|clienteid|idcliente|cliente|codigo|code|id)$/i) ?? '').trim();
+    }
+    if (cli && esLat(lat) && esLng(lng)) out.push({ cli: String(parseInt(cli, 10) || cli), lat, lng });
+  }
+  return out;
+}
+// Axum puede tener el vendedor como "2" o "002": si con uno no hay clientes se prueba el otro
+async function clientesDe(env, v) {
+  let d = await llamar(env, 'allClientsPositionByVendedor', { idVendedor: v });
+  if (!puntos(d).length && v.length < 3) d = await llamar(env, 'allClientsPositionByVendedor', { idVendedor: v.padStart(3, '0') });
+  return d;
 }
 
 const hoyAR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
@@ -255,12 +288,30 @@ export default {
         const d = await llamarPrev(env, url.searchParams.get('cmd'), url.searchParams.get('webmethod'), extrasDe(url));
         return json(req, { ok: true, forma: forma(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : d)), claves: d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : null });
       }
+      if (ruta === '/clientes-forma') {
+        const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await clientesDe(env, v);
+        return json(req, { ok: true, forma: forma(d), reconocidos: puntos(d).length });
+      }
+      if (ruta === '/ventas') {
+        // venta en vivo de Axum Preventa SIN clave (como los reportes de ventas de Gescom, que ya son publicos):
+        // solo estas tres consultas de la pantalla "Pedidos agrupados"; las posiciones del GPS siguen con clave
+        const wm = url.searchParams.get('webmethod') || '';
+        if (!['SelectVendedoresAgrupados', 'GetIndicadoresDeVentas', 'SelectClientesDeVendedor'].includes(wm)) return json(req, { ok: false, error: 'Consulta no permitida' }, 403);
+        return json(req, { ok: true, datos: await conCache('ventas-' + url.search, () => llamarPrev(env, 'v5_Pedidos', wm, extrasDe(url))) });
+      }
       // de aca en adelante hay datos de personas: piden la clave del panel
       if (!env.PANEL_CLAVE || !igual(req.headers.get('X-Clave'), env.PANEL_CLAVE)) return json(req, { ok: false, error: 'Clave del panel incorrecta' }, 401);
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('fecha') || '') ? url.searchParams.get('fecha') : hoyAR();
       if (ruta === '/posiciones') return json(req, { ok: true, datos: await conCache('posiciones', () => llamar(env, 'lastPositions', {})) });
       if (ruta === '/visitas') return json(req, { ok: true, fecha, datos: await conCache('visitas-' + fecha, () => conFecha(env, 'pasoPoprPDVAt', fecha)) });
       if (ruta === '/prev') return json(req, { ok: true, datos: await conCache('prev-' + url.search, () => llamarPrev(env, url.searchParams.get('cmd'), url.searchParams.get('webmethod'), extrasDe(url))) });
+      if (ruta === '/clientes') {
+        // de a pocos vendedores por pedido (el panel los manda en tandas) y guardado 6 horas: los clientes casi no se mueven
+        const vs = (url.searchParams.get('vendedores') || '').split(',').map(s => s.trim()).filter(s => /^\d{1,4}$/.test(s)).slice(0, 8);
+        const datos = {};
+        await Promise.all(vs.map(async v => { datos[v] = await conCache('clientes-' + v, async () => { const p = puntos(await clientesDe(env, v)); if (!p.length) throw new Error('sin clientes'); return p; }, 6 * 3600).catch(() => []); }));
+        return json(req, { ok: true, datos });
+      }
       if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);
     } catch (e) {
