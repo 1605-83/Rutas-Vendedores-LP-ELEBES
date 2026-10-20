@@ -163,6 +163,7 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
       <div id="gpsVista" hidden>
         <div class="gpsbar"><span id="gpsInfo"></span><span><button type="button" id="gpsAct">Actualizar</button> <button type="button" id="gpsSalir">Cerrar mapa</button></span></div>
         <div class="rbar"><b>Rutas</b><span class="rdias" id="rDias" role="group" aria-label="Día de la ruta"></span>
+          <label title="Tildado, cada día se prende y se apaga para ver varias rutas juntas"><input type="checkbox" id="rComb"> Combinar días</label>
           <select id="rVend" aria-label="Vendedor de la ruta"></select>
           <label><input type="checkbox" id="rZona" checked> Zonas</label><span id="rInfo"></span></div>
         <div class="card"><div id="mapa"></div></div>
@@ -378,14 +379,15 @@ const NDIA={L:'lunes',M:'martes',X:'miércoles',J:'jueves',V:'viernes'};
 function pintarRutas(V,diaSel){
   if(!capaR) return; capaR.clearLayers();
   if(!rDia){ const l=LETRA[fDia(diaSel).getDay()]; rDia=NDIA[l]? l : 'L'; }
-  $('rDias').innerHTML=Object.keys(NDIA).map(l=>`<button type="button" data-rd="${l}" aria-pressed="${l===rDia}" title="Ruta del ${NDIA[l]}">${l==='X'?'Mi':NDIA[l][0].toUpperCase()+NDIA[l].slice(1,3)}</button>`).join('');
+  $('rDias').innerHTML=Object.keys(NDIA).map(l=>`<button type="button" data-rd="${l}" aria-pressed="${rDia.includes(l)}" title="Ruta del ${NDIA[l]}">${l==='X'?'Mi':NDIA[l][0].toUpperCase()+NDIA[l].slice(1,3)}</button>`).join('');
   if($('rVend').options.length!==VEND.length+1) $('rVend').innerHTML='<option value="">Todos los vendedores</option>'+V.map(v=>`<option value="${v.c}">${v.c} · ${esc(v.n)}</option>`).join('');
   $('rVend').value=rVend;
-  const hoy=LETRA[fDia(diaSel).getDay()]===rDia, todo=[], ley=[]; let sinUb=0, total=0;
+  // rDia: una letra o varias si se combinan dias (pedido de Bruno, 20/10/2026), por ejemplo "LX" = lunes y miercoles
+  const lHoy=LETRA[fDia(diaSel).getDay()], hoy=rDia.includes(lHoy), todo=[], ley=[]; let sinUb=0, total=0;
   // clientes ubicados de cada vendedor en la ruta del dia; las zonas se arman con todos (asi el limite respeta a los vecinos
   // aunque se mire un solo vendedor)
   const ptsV=new Map();
-  for(const v of V){ const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>String(k[5]||'').includes(rDia));
+  for(const v of V){ const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>[...rDia].some(l=>String(k[5]||'').includes(l)));
     const pts=[]; for(const k of cart){ const u=CLIPOS&&CLIPOS.get(codigo(k[0])); if(u) pts.push({k,u}); else sinUb++; }
     total+=cart.length; if(cart.length) ley.push({v,n:cart.length}); ptsV.set(v.c,pts); }
   const Z= $('rZona').checked? zonasDia(V.map(v=>({c:v.c, pts:ptsV.get(v.c).map(p=>[p.u.lat,p.u.lng])})).filter(g=>g.pts.length)) : {};
@@ -398,11 +400,12 @@ function pintarRutas(V,diaSel){
       // va sobre el cliente mas cercano al centro de su zona mas grande (siempre cae adentro)
       if(rVend){ const m=z.mayor, c=pts.reduce((b,p)=>{ const d=(p.u.lat-m[0])**2+(p.u.lng-m[1])**2; return d<b.d? {d,ll:[p.u.lat,p.u.lng]} : b; },{d:Infinity,ll:m}).ll;
         L.tooltip({permanent:true,direction:'center',className:'zlab',interactive:false}).setLatLng(c).setContent(String(v.c)).addTo(capaR); } }
-    for(const {k,u} of pts){ const ped=hoy? v.comp.get(codigo(k[0])) : null;
+    for(const {k,u} of pts){ const hoyC=hoy && String(k[5]||'').includes(lHoy), ped=hoyC? v.comp.get(codigo(k[0])) : null;
+      const dk=[...rDia].filter(l=>String(k[5]||'').includes(l)).map(l=>NDIA[l]);   // dias elegidos en que se visita
       // cada cliente es un punto lleno del color del vendedor; el dia que se esta mirando, borde negro = con pedido
-      L.circleMarker([u.lat,u.lng],{radius:5,color: hoy&&ped? '#111' : '#fff',weight: hoy&&ped? 2 : 1,fillColor:v.col,fillOpacity:.95})
-        .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}<br>Ruta del ${NDIA[rDia]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
-          (hoy? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
+      L.circleMarker([u.lat,u.lng],{radius:5,color: hoyC&&ped? '#111' : '#fff',weight: hoyC&&ped? 2 : 1,fillColor:v.col,fillOpacity:.95})
+        .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}<br>Ruta del ${dk.length>1? dk.slice(0,-1).join(', ')+' y '+dk[dk.length-1] : dk[0]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
+          (hoyC? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
       todo.push([u.lat,u.lng]); }
   }
   listaVend(V);   // la lista de vendedores va en la barra azul con los 23 (ver listaVend)
@@ -411,13 +414,19 @@ function pintarRutas(V,diaSel){
   return todo;
 }
 document.addEventListener('click',e=>{
-  const d=e.target.closest('[data-rd]'); if(d){ rDia=d.dataset.rd; rAjustar=true; pintarMapa(); return; }
+  const d=e.target.closest('[data-rd]'); if(d){ const l=d.dataset.rd;
+    // con "Combinar dias" cada dia se prende y se apaga (queda al menos uno); sin tildar, se ve un solo dia
+    if($('rComb').checked){ const s=new Set(rDia); s.has(l)&&s.size>1? s.delete(l) : s.add(l); rDia=Object.keys(NDIA).filter(x=>s.has(x)).join(''); }
+    else rDia=l;
+    rAjustar=true; pintarMapa(); return; }
   const v=e.target.closest('[data-rv]'); if(v){ const enBarra=!!v.closest('aside');   // antes de redibujar la lista (el boton se reemplaza)
     rVend= rVend===v.dataset.rv? '' : v.dataset.rv; rAjustar=true; pintarMapa(); listaVend(calcular($('dia').value));
     if(enBarra){ if(panel!=='vivo') verPanel('vivo'); if($('gpsVista').hidden){ $('gpsClave').scrollIntoView({behavior:'smooth',block:'center'}); $('gpsClave').focus(); } else $('mapa').scrollIntoView({behavior:'smooth',block:'center'}); } }
 });
 $('rVend').addEventListener('change',()=>{ rVend=$('rVend').value; rAjustar=true; pintarMapa(); });
 $('rZona').addEventListener('change',pintarMapa);
+// al destildar "Combinar dias" queda el primero de los dias elegidos
+$('rComb').addEventListener('change',()=>{ if(!$('rComb').checked && rDia.length>1){ rDia=rDia[0]; rAjustar=true; } pintarMapa(); });
 
 // ---- Vendedores en la barra azul (pedido de Bruno, 20/10/2026): los 23, para buscarlos en el mapa. Tocar uno muestra
 // solo su ruta y su posicion; tocarlo otra vez vuelve a todos. Sin la clave del panel lleva al casillero de la clave ----
