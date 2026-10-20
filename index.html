@@ -103,9 +103,9 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
       <h2>Posiciones</h2>
       <!-- mapa en vivo: los datos de Axum GPS vienen del servicio protegido y piden la clave del panel -->
       <form class="card gpsform" id="gpsForm">
-        <b>Mapa en vivo de los vendedores (Axum GPS)</b>
+        <b>Mapa y pedidos en vivo (Axum GPS y Axum Preventa)</b>
         <input type="password" id="gpsClave" placeholder="Clave del panel" autocomplete="current-password" aria-label="Clave del panel">
-        <button type="submit">Ver mapa</button>
+        <button type="submit">Ver en vivo</button>
         <span class="gpserr" id="gpsErr"></span>
       </form>
       <div id="gpsVista" hidden>
@@ -177,6 +177,7 @@ async function cargarGPS(){
       (vis[c]||(vis[c]=[])).push({cli:codigo(x.clientId),tiempo:String(x.tiempo||''),visito:/^s/i.test(String(x.visito||'')),hora:(String(x.horario||'').split(' ')[1]||'').slice(0,5)}); }
     const jor={}; for(const x of (jo.datos||[])) jor[codigo(x.sellerId)]={ini:horaISO(x.firstVisit),fin:horaISO(x.lastVisit)};
     GPS={pos,vis,jor,dia,hora:new Date()};
+    await cargarPrev();   // pedidos en vivo de Axum Preventa, con la misma clave
     try{ sessionStorage.setItem('rutas-clave',gpsClave); }catch(e){}
     $('gpsForm').hidden=true; $('gpsVista').hidden=false; $('gpsErr').textContent='';
     dibujar(); pintarMapa();
@@ -185,6 +186,28 @@ async function cargarGPS(){
     $('gpsErr').textContent= e.estado===401? 'Clave incorrecta.' : 'No se pudo leer Axum GPS: '+e.message;
     if(!$('gpsVista').hidden) $('gpsInfo').textContent='No se pudo actualizar Axum GPS: '+e.message;
   }
+}
+// ---- Axum Preventa: pedidos en vivo (pantalla "Pedidos agrupados" de Axum) ----
+// una consulta por los totales de todos los vendedores; los clientes de cada vendedor se piden de nuevo
+// solo si cargo algo desde la ultima vez (lecturas livianas)
+let PREVD=null, prevErr='';
+const prevCache={};
+async function cargarPrev(){
+  const dia=$('dia').value; if(!dia||!gpsClave) return;
+  const f=encodeURIComponent(dia.replace(/-/g,'/')), q=`cmd=v5_Pedidos&fechaPedidoDesde=${f}&fechaPedidoHasta=${f}`;
+  try{
+    const [vs,ind]=await Promise.all([pedirGPS('/prev?webmethod=SelectVendedoresAgrupados&'+q), pedirGPS('/prev?webmethod=GetIndicadoresDeVentas&'+q)]);
+    const vend={}, pend=[];
+    for(const v of ((vs.datos&&vs.datos.vendedores)||[])){ const c=codigo(v.vendedorId); if(!VEND.includes(+c)) continue;
+      const ops=+v.operaciones||0, tot=+v.total||0, ant=prevCache[dia+'|'+c];
+      vend[c]={total:tot,ops,cant:+v.cantClientes||0,clientes: ant&&ant.ops===ops&&ant.tot===tot? ant.clientes : null};
+      if(!vend[c].clientes) pend.push(c); }
+    for(let i=0;i<pend.length;i+=4) await Promise.all(pend.slice(i,i+4).map(async c=>{
+      const r=await pedirGPS(`/prev?webmethod=SelectClientesDeVendedor&vendedor=${c}&`+q).catch(()=>null), cl=new Map();
+      for(const x of ((r&&Array.isArray(r.datos))? r.datos : [])) cl.set(codigo(x.clienteId),{total:+x.total||0,ops:+x.operaciones||0,rs:x.razonSocial||''});
+      vend[c].clientes=cl; if(r) prevCache[dia+'|'+c]={ops:vend[c].ops,tot:vend[c].total,clientes:cl}; }));
+    PREVD={dia,vend,ind:ind.datos||{},hora:new Date()}; prevErr='';
+  }catch(e){ PREVD=null; prevErr=e.message; }
 }
 function pintarMapa(){
   if(!GPS||typeof L==='undefined'||$('gpsVista').hidden) return;
@@ -236,11 +259,14 @@ function calcular(dia){
     const D=FILAS.filter(x=>x.v===c && x.car===dia);
     const cart=(CART&&CART.v&&CART.v[String(c)])||[];
     const ruta=letra? cart.filter(k=>k[5]===letra) : [];
-    const enRuta=new Set(ruta.map(k=>String(k[0])));
-    const comp=new Map(); D.filter(x=>x.op==='VEN').forEach(x=>{ const o=comp.get(x.cli)||{imp:0,rs:x.rs,nro:new Set()}; o.imp+=x.imp; o.nro.add(x.nro); comp.set(x.cli,o); });
+    const enRuta=new Set(ruta.map(k=>codigo(k[0])));
+    let comp=new Map(); D.filter(x=>x.op==='VEN').forEach(x=>{ const k=codigo(x.cli), o=comp.get(k)||{imp:0,rs:x.rs,nro:new Set()}; o.imp+=x.imp; o.nro.add(x.nro); comp.set(k,o); });
+    let venta=D.filter(x=>x.op==='VEN').reduce((a,x)=>a+x.imp,0), pedidos=new Set(D.filter(x=>x.op==='VEN').map(x=>x.nro)).size;
+    const dev=-D.filter(x=>x.op==='DEV').reduce((a,x)=>a+x.imp,0);
+    // con Axum Preventa en vivo: clientes con compra, vendido y operaciones salen de Axum (las devoluciones siguen de Gescom)
+    const ax= PREVD&&PREVD.dia===dia? (PREVD.vend[String(c)]||{total:0,ops:0,clientes:new Map()}) : null;
+    if(ax){ comp=new Map(); for(const [k,o] of (ax.clientes||new Map())) if(o.total>0) comp.set(k,{imp:o.total,rs:o.rs,nro:new Set()}); venta=ax.total; pedidos=ax.ops; }
     const visit=[...comp.keys()].filter(k=>enRuta.has(k)).length, fuera=[...comp.keys()].filter(k=>!enRuta.has(k)).length;
-    const venta=D.filter(x=>x.op==='VEN').reduce((a,x)=>a+x.imp,0), dev=-D.filter(x=>x.op==='DEV').reduce((a,x)=>a+x.imp,0);
-    const pedidos=new Set(D.filter(x=>x.op==='VEN').map(x=>x.nro)).size;
     // Axum GPS (si se cargo la clave): posicion, clientes visitados y jornada del vendedor
     const g= GPS? {pos:GPS.pos[String(c)]||null, vis:GPS.vis[String(c)]||[], jor:GPS.jor[String(c)]||null} : null;
     const visGPS= g? new Set(g.vis.filter(x=>x.visito).map(x=>x.cli)) : new Set();
@@ -256,7 +282,8 @@ const nombre=v=>`<span class="av" style="background:${v.col}">${esc(inic(v.n))}<
 function dibujar(){
   const dia=$('dia').value; if(!dia) return;
   const f=fDia(dia), V=calcular(dia);
-  $('fechaTxt').textContent=`${DIAS[f.getDay()]}, ${f.getDate()} de ${MESES[f.getMonth()]} · datos al ${corte}`;
+  const enVivo=PREVD&&PREVD.dia===dia, hAx=enVivo? PREVD.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
+  $('fechaTxt').textContent=`${DIAS[f.getDay()]}, ${f.getDate()} de ${MESES[f.getMonth()]} · `+(enVivo? `pedidos en vivo de Axum (${hAx})` : `datos al ${corte}`)+(prevErr&&GPS? ` · Axum Preventa: ${prevErr}` : '');
   const activos=V.filter(v=>v.pedidos>0).length, rT=V.reduce((a,v)=>a+v.ruta.length,0), vT=V.reduce((a,v)=>a+v.visit,0), venta=V.reduce((a,v)=>a+v.venta,0), ped=V.reduce((a,v)=>a+v.pedidos,0), bien=V.filter(v=>v.p!=null&&v.p>=.7).length;
   const pR=rT? vT/rT : 0, C=2*Math.PI*22;
   const ahora=minAhora(), trans=V.filter(v=>v.g&&v.g.pos).length, frescos=V.filter(v=>v.g&&v.g.pos&&v.g.pos.min!=null&&ahora-v.g.pos.min<=15).length;
@@ -265,9 +292,9 @@ function dibujar(){
     `<div class="kpi" style="--c:var(--naranja)"><div class="l">Con pedidos</div><div class="v">${activos}</div><div class="n">de ${VEND.length} vendedores de calle</div></div>`)+`
     <div class="kpi" style="--c:var(--violeta)"><div class="l">Ruta de hoy</div><div class="v">${fmtP(pR)}</div><div class="n">${fmtN(vT)} de ${fmtN(rT)} clientes con pedido</div>
       <svg class="anillo" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="22" fill="none" stroke="#EDF0F5" stroke-width="7"/><circle cx="28" cy="28" r="22" fill="none" stroke="var(--violeta)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${pR*C} ${C}" transform="rotate(-90 28 28)"/></svg></div>
-    <div class="kpi" style="--c:var(--azul)"><div class="l">Vendido</div><div class="v">${fmt$(venta)}</div><div class="n">${fmtN(ped)} pedidos cargados</div></div>
+    <div class="kpi" style="--c:var(--azul)"><div class="l">Vendido</div><div class="v">${fmt$(venta)}</div><div class="n">${fmtN(ped)} ${enVivo? 'operaciones en Axum' : 'pedidos cargados'}${enVivo&&PREVD.ind.operacionesNoCompra!=null? ` · ${fmtN(PREVD.ind.operacionesNoCompra)} no compra` : ''}</div></div>
     <div class="kpi" style="--c:var(--verde)"><div class="l">Al día</div><div class="v">${bien}</div><div class="n">vendedores con 70% o más de la ruta con pedido</div></div>
-    <div class="kpi" style="--c:var(--violeta)"><div class="l">Última lectura</div><div class="v" style="font-size:1.5rem">${esc(corte.split(' ')[1]||'—')}</div><div class="n">base de Gescom del ${esc(corte.split(' ')[0]||'')}</div></div>`;
+    <div class="kpi" style="--c:var(--violeta)"><div class="l">Última lectura</div><div class="v" style="font-size:1.5rem">${enVivo? esc(hAx) : esc(corte.split(' ')[1]||'—')}</div><div class="n">${enVivo? 'Axum en vivo · se actualiza sola cada 5 minutos' : `base de Gescom del ${esc(corte.split(' ')[0]||'')}`}</div></div>`;
   const val={c:v=>v.c,n:v=>v.n,ruta:v=>v.ruta.length,visit:v=>v.visit,p:v=>v.p??-1,fuera:v=>v.fuera,ped:v=>v.pedidos,venta:v=>v.venta,dev:v=>v.dev,gv:v=>v.gv??-1,
     // inicio en minutos del dia; ultima senal = minutos desde la ultima posicion (sin senal va ultimo); estado de peor a mejor
     ini:v=>{ const t=v.g&&v.g.jor&&v.g.jor.ini; return t? minutosDe(t) : -1; },
@@ -301,8 +328,8 @@ function dibujar(){
   $('tVend').innerHTML=v? `<thead><tr><th class="l" colspan="5">${nombre(v)} · ${v.visit} de ${v.ruta.length} clientes de ruta con pedido · ${fmt$(v.venta)}</th></tr></thead><tbody><tr><td colspan="5" class="l" style="white-space:normal">${clientes(v)}</td></tr></tbody>` : '';
 }
 function clientes(v){
-  const filas=v.ruta.map(k=>{ const o=v.comp.get(String(k[0])); return {cod:String(k[0]),rs:k[1],loc:k[3],ok:!!o,imp:o?o.imp:0,en:true}; });
-  for(const [cli,o] of v.comp) if(!v.ruta.some(k=>String(k[0])===cli)) filas.push({cod:cli,rs:o.rs,loc:'',ok:true,imp:o.imp,en:false});
+  const filas=v.ruta.map(k=>{ const o=v.comp.get(codigo(k[0])); return {cod:String(k[0]),rs:k[1],loc:k[3],ok:!!o,imp:o?o.imp:0,en:true}; });
+  for(const [cli,o] of v.comp) if(!v.ruta.some(k=>codigo(k[0])===cli)) filas.push({cod:cli,rs:o.rs,loc:'',ok:true,imp:o.imp,en:false});
   filas.sort((a,b)=>(b.en-a.en)||(a.ok-b.ok)||b.imp-a.imp);
   // con Axum GPS: si el vendedor paso por el cliente, a que hora y cuanto estuvo
   const gps=x=>{ if(!v.g) return ''; const vs=v.g.vis.filter(y=>y.cli===codigo(x.cod)); const vi=vs.find(y=>y.visito)||vs[0];
@@ -320,7 +347,7 @@ document.addEventListener('click',e=>{
 $('dia').addEventListener('change',()=>{ dibujar(); if(gpsClave) cargarGPS(); }); $('vSel').addEventListener('change',dibujar);
 $('gpsForm').addEventListener('submit',e=>{ e.preventDefault(); gpsClave=$('gpsClave').value.trim(); $('gpsClave').value=''; if(gpsClave) cargarGPS(); });
 $('gpsAct').addEventListener('click',cargarGPS);
-$('gpsSalir').addEventListener('click',()=>{ GPS=null; gpsClave=''; try{ sessionStorage.removeItem('rutas-clave'); }catch(e){} $('gpsVista').hidden=true; $('gpsForm').hidden=false; dibujar(); });
+$('gpsSalir').addEventListener('click',()=>{ GPS=null; PREVD=null; prevErr=''; gpsClave=''; try{ sessionStorage.removeItem('rutas-clave'); }catch(e){} $('gpsVista').hidden=true; $('gpsForm').hidden=false; dibujar(); });
 setInterval(()=>{ if(gpsClave && !document.hidden) cargarGPS(); }, 5*60*1000);   // en vivo: cada 5 minutos
 
 (async function(){
