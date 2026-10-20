@@ -21,6 +21,17 @@ aside button{display:flex;align-items:center;gap:12px;width:100%;font:inherit;fo
 aside button:hover{background:var(--side2)}aside button[aria-current="page"]{background:var(--side2);color:#fff}
 aside button i{font-style:normal;width:18px;text-align:center;opacity:.85}
 aside .pie{position:absolute;bottom:16px;left:12px;right:12px;font-size:.72rem;color:#CFE0F7;padding:0 8px}
+/* vendedores del mapa en la barra azul, debajo de las opciones (pedido de Bruno, 20/10/2026) */
+aside{display:flex;flex-direction:column}
+aside .pie{position:static;margin-top:auto;padding:12px 8px 0}
+aside .ley{flex:1 1 auto;min-height:0;overflow-y:auto;flex-direction:column;flex-wrap:nowrap;gap:2px;margin-top:12px;padding:12px 0 0;border-top:1px solid rgba(255,255,255,.25)}
+aside .ley:not(:empty)::before{content:'Vendedores en el mapa';font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#CFE0F7;padding:0 8px 6px}
+aside .ley button{width:100%;gap:8px;font-size:.82rem;font-weight:600;color:#EAF2FD;background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 8px;margin:0}
+aside .ley button:hover{background:var(--side2)}
+aside .ley button i{flex:none;width:11px;height:11px;border-radius:50%;opacity:1;box-shadow:0 0 0 1.5px rgba(255,255,255,.8)}
+aside .ley button[aria-pressed="true"]{background:#fff;color:var(--side);border-color:#fff;font-weight:800}
+aside .ley.filtro button[aria-pressed="false"]{opacity:.55}
+aside .ley span{color:#CFE0F7!important;padding:0 8px}
 main{padding:18px 24px 40px;min-width:0}
 .top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
 .top h1{margin:0;font-size:1.3rem;font-weight:800}.top .fecha{color:var(--ink2);font-size:.92rem;text-transform:capitalize}
@@ -64,6 +75,12 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
   .marca{border:0;margin:0;padding:0 8px 0 0}.marca div{display:none}
   aside button{width:auto;white-space:nowrap;margin:0;padding:9px 12px}
   aside .pie{display:none}
+  .app{grid-template-columns:minmax(0,1fr)}
+  aside{flex-direction:row;flex-wrap:wrap;overflow-x:visible;min-width:0}
+  aside nav{display:flex;gap:4px;overflow-x:auto;min-width:0;flex:1 1 auto}
+  aside .ley{flex:1 0 100%;flex-direction:row;overflow-x:auto;margin:6px 0 0;padding:6px 0 2px;border:0;border-top:1px solid rgba(255,255,255,.25)}
+  aside .ley:not(:empty)::before{display:none}
+  aside .ley button{width:auto;white-space:nowrap}
   main{padding:14px 16px 40px}
 }
 /* mapa en vivo (Axum GPS) */
@@ -112,6 +129,7 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
       <button type="button" data-p="adv"><i>⚠</i>Advertencias</button>
       <button type="button" data-p="vend"><i>☰</i>Vendedores</button>
     </nav>
+    <div class="ley" id="rLey"></div>
     <div class="pie">Pedidos y carteras de Gescom · posiciones y visitas de Axum GPS (con la clave del panel).</div>
   </aside>
   <main>
@@ -136,7 +154,7 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
         <div class="rbar"><b>Rutas</b><span class="rdias" id="rDias" role="group" aria-label="Día de la ruta"></span>
           <select id="rVend" aria-label="Vendedor de la ruta"></select>
           <label><input type="checkbox" id="rZona" checked> Zonas</label><span id="rInfo"></span></div>
-        <div class="card"><div id="mapa"></div><div class="ley" id="rLey"></div></div>
+        <div class="card"><div id="mapa"></div></div>
       </div>
       <h2>Ruta de hoy por vendedor</h2>
       <div class="card tbl"><table id="tVivo"></table></div>
@@ -293,19 +311,26 @@ function pintarRutas(V,diaSel){
           (hoy? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
       todo.push([u.lat,u.lng]); }
   }
-  $('rLey').className='ley'+(rVend?' filtro':'');
-  $('rLey').innerHTML=ley.map(({v,n})=>`<button type="button" data-rv="${v.c}" aria-pressed="${String(v.c)===rVend}"><i style="background:${v.col}"></i>${v.c} · ${esc(v.n)} (${n})</button>`).join('')||'<span style="color:var(--ink2);font-size:.84rem">Nadie tiene ruta este día.</span>';
+  listaVend(V);   // la lista de vendedores va en la barra azul con los 23 (ver listaVend)
   $('rInfo').textContent= cliCargando? 'Cargando ubicación de los clientes…' : cliErr? cliErr :
     `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · lleno = con pedido, hueco = sin pedido' : ''}`;
   return todo;
 }
 document.addEventListener('click',e=>{
   const d=e.target.closest('[data-rd]'); if(d){ rDia=d.dataset.rd; rAjustar=true; pintarMapa(); return; }
-  const v=e.target.closest('[data-rv]'); if(v){ rVend= rVend===v.dataset.rv? '' : v.dataset.rv; rAjustar=true; pintarMapa(); }
+  const v=e.target.closest('[data-rv]'); if(v){ const enBarra=!!v.closest('aside');   // antes de redibujar la lista (el boton se reemplaza)
+    rVend= rVend===v.dataset.rv? '' : v.dataset.rv; rAjustar=true; pintarMapa(); listaVend(calcular($('dia').value));
+    if(enBarra){ if(panel!=='vivo') verPanel('vivo'); if($('gpsVista').hidden){ $('gpsClave').scrollIntoView({behavior:'smooth',block:'center'}); $('gpsClave').focus(); } else $('mapa').scrollIntoView({behavior:'smooth',block:'center'}); } }
 });
 $('rVend').addEventListener('change',()=>{ rVend=$('rVend').value; rAjustar=true; pintarMapa(); });
 $('rZona').addEventListener('change',pintarMapa);
 
+// ---- Vendedores en la barra azul (pedido de Bruno, 20/10/2026): los 23, para buscarlos en el mapa. Tocar uno muestra
+// solo su ruta y su posicion; tocarlo otra vez vuelve a todos. Sin la clave del panel lleva al casillero de la clave ----
+function listaVend(V){
+  const el=$('rLey'); el.className='ley'+(rVend?' filtro':'');
+  el.innerHTML=[...V].sort((a,b)=>a.c-b.c).map(v=>`<button type="button" data-rv="${v.c}" aria-pressed="${String(v.c)===rVend}" title="Ver a ${esc(v.n)} en el mapa"><i style="background:${v.col}"></i>${v.c} · ${esc(v.n)} (${v.ruta.length})</button>`).join('');
+}
 function pintarMapa(){
   if(typeof L==='undefined'||$('gpsVista').hidden) return;
   if(!mapa){ mapa=L.map('mapa',{scrollWheelZoom:false}); capaR=L.layerGroup().addTo(mapa); capa=L.layerGroup().addTo(mapa);
@@ -382,6 +407,7 @@ const nombre=v=>`<span class="av" style="background:${v.col}">${esc(inic(v.n))}<
 function dibujar(){
   const dia=$('dia').value; if(!dia) return;
   const f=fDia(dia), V=calcular(dia);
+  listaVend(V);
   const enVivo=PREVD&&PREVD.dia===dia, hAx=enVivo? PREVD.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '';
   $('fechaTxt').textContent=`${DIAS[f.getDay()]}, ${f.getDate()} de ${MESES[f.getMonth()]} · `+(enVivo? `pedidos en vivo de Axum (${hAx})` : `datos al ${corte}`)+(prevErr&&GPS? ` · Axum Preventa: ${prevErr}` : '');
   const activos=V.filter(v=>v.pedidos>0).length, rT=V.reduce((a,v)=>a+v.ruta.length,0), vT=V.reduce((a,v)=>a+v.visit,0), venta=V.reduce((a,v)=>a+v.venta,0), ped=V.reduce((a,v)=>a+v.pedidos,0), bien=V.filter(v=>v.p!=null&&v.p>=.7).length;
