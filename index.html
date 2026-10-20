@@ -187,6 +187,8 @@ gpsClave=guardaClave.leer();
 let recordar=true, proxima=0, actualizando=false;
 const isoDia=d=>d.slice(6)+'-'+d.slice(3,5)+'-'+d.slice(0,2);   // dd-mm-aaaa -> aaaa-mm-dd
 const codigo=s=>{ const t=String(s??'').trim(), n=parseInt(t,10); return isNaN(n)? t : String(n); };   // "002" = "2"
+// clientes: se toma el ultimo grupo de numeros ("L-05333" = "05333" = "5333"), por si Axum les pone prefijo de empresa
+const codigoCli=s=>{ const m=String(s??'').trim().match(/(\d+)\D*$/); return m? String(parseInt(m[1],10)) : String(s??'').trim(); };
 const minAhora=()=>{ const d=new Date(Date.now()-3*3600e3); return d.getUTCHours()*60+d.getUTCMinutes(); };
 const minutosDe=h=>{ const m=String(h||'').trim().match(/^(\d{1,2}):(\d{2})\s*([ap])?/i); if(!m) return null; let hh=+m[1];
   if(m[3]){ const pm=/p/i.test(m[3]); if(pm&&hh<12) hh+=12; if(!pm&&hh===12) hh=0; } return hh*60+(+m[2]); };
@@ -221,7 +223,7 @@ async function leerGPS(dia){
       if(isFinite(lat)&&isFinite(lng)&&lat&&lng) pos[codigo(a[2])]={lat,lng,hora:(a[3]||'').trim(),min:minutosDe(a[3])}; }
     // pasoPoprPDVAt: por que clientes paso cada vendedor, cuanto estuvo y si visito
     const vis={}; for(const x of (vi.datos||[])){ const c=codigo(x.sellerId);
-      (vis[c]||(vis[c]=[])).push({cli:codigo(x.clientId),tiempo:String(x.tiempo||''),visito:/^s/i.test(String(x.visito||'')),hora:(String(x.horario||'').split(' ')[1]||'').slice(0,5)}); }
+      (vis[c]||(vis[c]=[])).push({cli:codigoCli(x.clientId),tiempo:String(x.tiempo||''),visito:/^s/i.test(String(x.visito||'')),hora:(String(x.horario||'').split(' ')[1]||'').slice(0,5)}); }
     const jor={}; for(const x of (jo.datos||[])) jor[codigo(x.sellerId)]={ini:horaISO(x.firstVisit),fin:horaISO(x.lastVisit)};
     GPS={pos,vis,jor,dia,hora:new Date()};
   }
@@ -368,7 +370,7 @@ function calcular(dia){
     // Axum GPS (si se cargo la clave): posicion, clientes visitados y jornada del vendedor
     const g= GPS? {pos:GPS.pos[String(c)]||null, vis:GPS.vis[String(c)]||[], jor:GPS.jor[String(c)]||null} : null;
     const visGPS= g? new Set(g.vis.filter(x=>x.visito).map(x=>x.cli)) : new Set();
-    const gv= g? ruta.filter(k=>visGPS.has(codigo(k[0]))).length : null;
+    const gv= g? ruta.filter(k=>visGPS.has(codigoCli(k[0]))).length : null;
     return {c, n:NOMV[c]||('Vendedor '+c), col:COLORES[i%COLORES.length], ruta, visit, fuera, venta, dev, pedidos, comp, p: ruta.length? visit/ruta.length : null,
       g, visGPS, gv, gT: visGPS.size};
   });
@@ -430,9 +432,15 @@ function clientes(v){
   for(const [cli,o] of v.comp) if(!v.ruta.some(k=>codigo(k[0])===cli)) filas.push({cod:cli,rs:o.rs,loc:'',ok:true,imp:o.imp,en:false});
   filas.sort((a,b)=>(b.en-a.en)||(a.ok-b.ok)||b.imp-a.imp);
   // con Axum GPS: si el vendedor paso por el cliente, a que hora y cuanto estuvo
-  const gps=x=>{ if(!v.g) return ''; const vs=v.g.vis.filter(y=>y.cli===codigo(x.cod)); const vi=vs.find(y=>y.visito)||vs[0];
-    return `<td class="l">${vi? `<span class="est ${vi.visito?'e-ok':'e-gris'}">${vi.visito?'Visitó':'Pasó'} ${esc(vi.hora)}</span> <span style="color:var(--ink2)">${esc(vi.tiempo)}</span>` : '<span class="est e-no">No pasó</span>'}</td>`; };
-  return `<table><thead><tr><th class="l">Cliente</th><th class="l">Razón social</th><th class="l">Localidad</th>${v.g? '<th class="l">GPS</th>' : ''}<th class="l">Estado</th><th>Pedido</th></tr></thead><tbody>${filas.map(x=>`<tr><td class="l"><b>${esc(x.cod)}</b></td><td class="l">${esc(titulo(x.rs))}</td><td class="l">${esc(titulo(x.loc))}</td>${gps(x)}<td class="l">${x.en? (x.ok? '<span class="est e-ok">Con pedido</span>' : '<span class="est e-no">Sin pedido</span>') : '<span class="est e-gris">Fuera de ruta</span>'}</td><td>${x.imp? fmt$(x.imp) : ''}</td></tr>`).join('')||'<tr><td colspan="6" class="l">Sin clientes de ruta este día.</td></tr>'}</tbody></table>`;
+  // si Axum GPS no registro el paso pero el cliente tiene pedido ese dia, el vendedor estuvo: "Pedido sin GPS" (ambar), no "No paso"
+  const gps=x=>{ if(!v.g) return ''; const vs=v.g.vis.filter(y=>y.cli===codigoCli(x.cod)); const vi=vs.find(y=>y.visito)||vs[0];
+    return `<td class="l">${vi? `<span class="est ${vi.visito?'e-ok':'e-gris'}">${vi.visito?'Visitó':'Pasó'} ${esc(vi.hora)}</span> <span style="color:var(--ink2)">${esc(vi.tiempo)}</span>`
+      : x.ok? '<span class="est e-mid" title="Tiene pedido ese día pero Axum GPS no registró el paso (ubicación del cliente mal cargada en Axum, el vendedor fuera del radio o el celular sin señal)">Pedido sin GPS</span>'
+      : '<span class="est e-no">No pasó</span>'}</td>`; };
+  // control: cuantas pasadas registro Axum GPS para este vendedor y cuantas son de clientes de su ruta
+  const enRutaCod=new Set(v.ruta.map(k=>codigoCli(k[0]))), pas=v.g? new Set(v.g.vis.map(y=>y.cli)) : null;
+  const ctrl= pas? `<p class="nota" style="margin:0 0 8px;color:var(--ink2);font-size:.82rem">Axum GPS registró hoy <b>${pas.size}</b> clientes por los que pasó este vendedor; <b>${[...pas].filter(c=>enRutaCod.has(c)).length}</b> son de su ruta del día${pas.size && ![...pas].some(c=>enRutaCod.has(c)||v.comp.has(c))? ' · <b style="color:var(--rojo)">ninguno coincide con los códigos de Gescom</b>' : ''}.</p>` : '';
+  return ctrl+`<table><thead><tr><th class="l">Cliente</th><th class="l">Razón social</th><th class="l">Localidad</th>${v.g? '<th class="l">GPS</th>' : ''}<th class="l">Estado</th><th>Pedido</th></tr></thead><tbody>${filas.map(x=>`<tr><td class="l"><b>${esc(x.cod)}</b></td><td class="l">${esc(titulo(x.rs))}</td><td class="l">${esc(titulo(x.loc))}</td>${gps(x)}<td class="l">${x.en? (x.ok? '<span class="est e-ok">Con pedido</span>' : '<span class="est e-no">Sin pedido</span>') : '<span class="est e-gris">Fuera de ruta</span>'}</td><td>${x.imp? fmt$(x.imp) : ''}</td></tr>`).join('')||'<tr><td colspan="6" class="l">Sin clientes de ruta este día.</td></tr>'}</tbody></table>`;
 }
 function verPanel(p){ panel=p; document.querySelectorAll('[data-panel]').forEach(d=>d.hidden=d.dataset.panel!==p);
   document.querySelectorAll('aside [data-p]').forEach(b=>b.toggleAttribute('aria-current',b.dataset.p===p)); document.querySelectorAll('aside [data-p][aria-current]').forEach(b=>b.setAttribute('aria-current','page'));
