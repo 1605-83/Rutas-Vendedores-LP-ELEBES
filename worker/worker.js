@@ -14,8 +14,8 @@
 //   GET /visitas?fecha=AAAA-MM-DD  con clave: pasoPoprPDVAt (por que clientes paso cada uno y cuanto estuvo)
 //   GET /jornada?fecha=AAAA-MM-DD  con clave: primerUltimaVisitaAt (hora de inicio y fin)
 //   GET /clientes?vendedores=2,4,5 con clave: allClientsPositionByVendedor (donde esta cada cliente, para dibujar las rutas)
-//   GET /recorrido?vendedores=2,4&fecha=AAAA-MM-DD  con clave: FindLocationsOfVendedorIdEnDia (por donde camino cada vendedor ese dia)
-//   GET /recorrido-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
+//   GET /recorrido?vendedor=2&fecha=AAAA-MM-DD  con clave: FindLocationsOfVendedorIdEnDiaFromTo (por donde camino ese vendedor ese dia)
+//   GET /recorrido-forma?vendedor=2 con clave: forma de un tramo corto (30 min) con los valores enmascarados
 //   GET /clientes-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
 // La clave del panel va en el encabezado "X-Clave".
 //
@@ -202,13 +202,25 @@ function recorrido(d) {
   }
   return out;
 }
-// mismo criterio de fechas que conFecha, pero esta funcion pide el dato "dia"
+// El GPS manda un punto cada 2 s (~17.000 por dia): pedir el dia entero cuelga el servidor de Axum, del que dependen
+// los vendedores (instructivo COMO-BAJAR-DE-AXUM). Se pide un vendedor por vez, en tramos de 2 horas uno detras del
+// otro con una pausa, y se guarda 1 de cada 15 puntos (uno cada ~30 s)
+const pausa = ms => new Promise(r => setTimeout(r, ms));
+const hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+async function tramo(env, v, fecha, desde, hasta) {
+  const fmt = FORMATOS[formatoOk == null ? 0 : formatoOk](fecha);
+  return llamar(env, 'FindLocationsOfVendedorIdEnDiaFromTo', { idVendedor: v, from: fmt + ' ' + hm(desde), to: fmt + ' ' + hm(hasta) });
+}
 async function recorridoDe(env, v, fecha) {
-  const orden = formatoOk == null ? FORMATOS.map((_, i) => i) : [formatoOk, ...FORMATOS.map((_, i) => i).filter(i => i !== formatoOk)];
-  let d = null;
-  for (const id of v.length < 3 ? [v, v.padStart(3, '0')] : [v])
-    for (const i of orden) { try { d = await llamar(env, 'FindLocationsOfVendedorIdEnDia', { idVendedor: id, dia: FORMATOS[i](fecha) }); if (recorrido(d).length) return d; } catch (e) {} }
-  return d;
+  const ahora = new Date(Date.now() - 3 * 3600e3), fin = fecha === hoyAR() ? Math.min(20 * 60, ahora.getUTCHours() * 60 + ahora.getUTCMinutes()) : 20 * 60;
+  const out = [];
+  for (let m = 7 * 60; m < fin; m += 120) {
+    const p = recorrido(await tramo(env, v, fecha, m, Math.min(m + 120, fin)));
+    for (let i = 0; i < p.length; i += 15) out.push(p[i]);
+    if (p.length && (p.length - 1) % 15) out.push(p[p.length - 1]);
+    await pausa(400);
+  }
+  return out;
 }
 
 // Axum puede tener el vendedor como "2" o "002": si con uno no hay clientes se prueba el otro
@@ -323,10 +335,6 @@ export default {
         const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await clientesDe(env, v);
         return json(req, { ok: true, forma: forma(d), reconocidos: puntos(d).length });
       }
-      if (ruta === '/recorrido-forma') {
-        const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await recorridoDe(env, v, hoyAR());
-        return json(req, { ok: true, forma: forma(d), reconocidos: recorrido(d).length });
-      }
       if (ruta === '/ventas') {
         // venta en vivo de Axum Preventa SIN clave (como los reportes de ventas de Gescom, que ya son publicos):
         // solo estas tres consultas de la pantalla "Pedidos agrupados"; las posiciones del GPS siguen con clave
@@ -347,11 +355,16 @@ export default {
         await Promise.all(vs.map(async v => { datos[v] = await conCache('clientes-' + v, async () => { const p = puntos(await clientesDe(env, v)); if (!p.length) throw new Error('sin clientes'); return p; }, 6 * 3600).catch(() => []); }));
         return json(req, { ok: true, datos });
       }
+      if (ruta === '/recorrido-forma') {
+        const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await tramo(env, v, hoyAR(), 9 * 60, 9 * 60 + 30);
+        return json(req, { ok: true, forma: forma(d), reconocidos: recorrido(d).length });
+      }
       if (ruta === '/recorrido') {
-        // de a pocos vendedores por pedido; lo de hoy se guarda 2 minutos (va creciendo), un dia pasado 6 horas
-        const vs = (url.searchParams.get('vendedores') || '').split(',').map(s => s.trim()).filter(s => /^\d{1,4}$/.test(s)).slice(0, 8), datos = {};
-        await Promise.all(vs.map(async v => { datos[v] = await conCache('recorrido-' + v + '-' + fecha, async () => recorrido(await recorridoDe(env, v, fecha)), fecha === hoyAR() ? 120 : 6 * 3600).catch(() => []); }));
-        return json(req, { ok: true, fecha, datos });
+        // un vendedor por pedido; lo de hoy se guarda 10 minutos, un dia pasado 24 horas
+        const v = (url.searchParams.get('vendedor') || '').replace(/\D/g, '').slice(0, 4);
+        if (!v) return json(req, { ok: false, error: 'Falta el vendedor' }, 400);
+        const datos = await conCache('recorrido-' + v + '-' + fecha, () => recorridoDe(env, v, fecha), fecha === hoyAR() ? 600 : 24 * 3600);
+        return json(req, { ok: true, fecha, vendedor: v, datos });
       }
       if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);

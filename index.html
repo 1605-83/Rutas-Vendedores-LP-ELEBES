@@ -255,10 +255,8 @@ async function leerGPS(dia){
     const vis={}; for(const x of (vi.datos||[])){ const c=codigo(x.sellerId);
       (vis[c]||(vis[c]=[])).push({cli:codigoCli(x.clientId),tiempo:String(x.tiempo||''),visito:/^s/i.test(String(x.visito||'')),hora:(String(x.horario||'').split(' ')[1]||'').slice(0,5)}); }
     const jor={}; for(const x of (jo.datos||[])) jor[codigo(x.sellerId)]={ini:horaISO(x.firstVisit),fin:horaISO(x.lastVisit)};
-    // recorrido del dia (pedido de Bruno, 20/10/2026: ver el trayecto del vendedor); en tandas, y si falla queda vacio
-    const rec={}; await Promise.all(Array.from({length:Math.ceil(VEND.length/6)},(_,i)=>pedirGPS(`/recorrido?fecha=${f}&vendedores=`+VEND.slice(i*6,i*6+6).join(','))
-      .then(r=>{ for(const [c,l] of Object.entries(r.datos||{})) if(Array.isArray(l)&&l.length) rec[codigo(c)]=l; }).catch(()=>{})));
-    GPS={pos,vis,jor,rec,dia,hora:new Date()};
+    // rec: recorrido del GPS de cada vendedor, se pide recien al tildarlo (cargarRec)
+    GPS={pos,vis,jor,rec:{},dia,hora:new Date()};
   }
 }
 // ---- Axum Preventa: pedidos en vivo (pantalla "Pedidos agrupados" de Axum) ----
@@ -458,6 +456,12 @@ function listaVend(V){
   const el=$('rLey'); el.className='ley'+(rVend?' filtro':'');
   el.innerHTML=[...V].sort((a,b)=>a.c-b.c).map(v=>`<button type="button" data-rv="${v.c}" aria-pressed="${String(v.c)===rVend}" title="Ver a ${esc(v.n)} en el mapa"><i style="background:${v.col}"></i>${v.c} · ${esc(v.n)} (${v.ruta.length})</button>`).join('');
 }
+// recorrido del GPS de un vendedor (pedido de Bruno, 20/10/2026: ver el trayecto): solo del vendedor tildado, porque
+// pedirlo para todos carga el servidor de Axum; mientras llega (o si falla) se ve el armado con las visitas
+function cargarRec(c){
+  if(!GPS||c in GPS.rec) return; const G=GPS; G.rec[c]=null;
+  pedirGPS(`/recorrido?vendedor=${c}&fecha=${isoDia(G.dia)}`).then(r=>{ if(Array.isArray(r.datos)&&r.datos.length>1){ G.rec[c]=r.datos; if(GPS===G) pintarMapa(); } }).catch(()=>{});
+}
 // trayecto del vendedor: el recorrido del GPS si Axum lo da; si no, los clientes por los que paso en orden de hora
 // (linea punteada) hasta donde esta ahora
 function trayecto(v){
@@ -478,6 +482,7 @@ function pintarMapa(){
   const ruta=pintarRutas(V,$('dia').value)||[];
   if(ruta.length&&rAjustar){ mapa.fitBounds(ruta,{padding:[30,30],maxZoom:15}); rAjustar=false; mapaAjustado=true; }
   if(!GPS){ $('gpsInfo').textContent='Sin posiciones de Axum GPS en este momento'; setTimeout(()=>mapa.invalidateSize(),60); if(!ruta.length&&!mapaAjustado) mapa.setView([-34.75,-58.3],11); return; }
+  if(rVend) cargarRec(rVend);
   for(const v of V){ if(rVend&&String(v.c)!==rVend) continue; const t=trayecto(v); if(t.length<2) continue;
     L.polyline(t,{color:'#fff',weight:7,opacity:.9,interactive:false}).addTo(capa);
     L.polyline(t,{color:v.col,weight:4,opacity:.95,dashArray:v.g.rec? null : '8 6'}).addTo(capa).bindTooltip(`Trayecto de ${v.c} · ${esc(v.n)}`,{sticky:true});
@@ -536,7 +541,7 @@ function calcular(dia){
     if(ax){ comp=new Map(); for(const [k,o] of (ax.clientes||new Map())) if(o.total>0) comp.set(k,{imp:o.total,rs:o.rs,nro:new Set()}); venta=ax.total; pedidos=ax.ops; }
     const visit=[...comp.keys()].filter(k=>enRuta.has(k)).length, fuera=[...comp.keys()].filter(k=>!enRuta.has(k)).length;
     // Axum GPS (si se cargo la clave): posicion, clientes visitados y jornada del vendedor
-    const g= GPS? {pos:GPS.pos[String(c)]||null, vis:GPS.vis[String(c)]||[], jor:GPS.jor[String(c)]||null, rec:(GPS.rec||{})[String(c)]||null} : null;
+    const g= GPS? {pos:GPS.pos[String(c)]||null, vis:GPS.vis[String(c)]||[], jor:GPS.jor[String(c)]||null, rec:GPS.rec[String(c)]||null} : null;
     const visGPS= g? new Set(g.vis.filter(x=>x.visito).map(x=>x.cli)) : new Set();
     const gv= g? ruta.filter(k=>visGPS.has(codigoCli(k[0]))).length : null;
     return {c, n:NOMV[c]||('Vendedor '+c), col:COLORES[i%COLORES.length], ruta, visit, fuera, venta, dev, pedidos, comp, p: ruta.length? visit/ruta.length : null,
