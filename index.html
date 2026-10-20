@@ -283,6 +283,23 @@ async function cargarPrev(){
 }
 // ---- Rutas de la semana: los clientes de la cartera de cada dia (Gescom) ubicados con Axum GPS, un color por vendedor ----
 let CLIPOS=null, cliErr='', cliCargando=false, capaR=null, rDia='', rVend='', rAjustar=true;
+// ---- Ubicaciones revisadas (pedido de Bruno, 20/10/2026): el mapa de clientes (Base-Ruta-LP-ELEBES) tiene la ubicacion
+// de cada cliente corregida segun su direccion; se usa cuando el punto de Axum cae fuera de la zona del vendedor o no hay ----
+let POSB=null, corrN=0;
+fetch('https://raw.githubusercontent.com/1605-83/Base-Ruta-LP-ELEBES/main/posiciones.json?t='+Date.now(),{cache:'no-store'})
+  .then(r=>r.ok? r.json() : null).then(j=>{ if(!j||!j.p) return; POSB=new Map(Object.entries(j.p).map(([c,p])=>[codigo(c),p])); pintarMapa(); }).catch(()=>{});
+// fuera de la zona = a mas de 3 veces la distancia tipica al centro de sus clientes (minimo 1,5 km); se pasa a la
+// ubicacion revisada si esta a mas de 300 m de la de Axum. Devuelve cuantos corrigio
+function corregirFuera(pts){
+  if(!POSB||pts.length<4) return 0;
+  const med=a=>{ const s=[...a].sort((x,y)=>x-y), m=s.length>>1; return s.length%2? s[m] : (s[m-1]+s[m])/2; };
+  const c=[med(pts.map(p=>p.u.lat)),med(pts.map(p=>p.u.lng))], kx=111.32*Math.cos(c[0]*Math.PI/180);
+  const km=(a,b,x,y)=>Math.hypot((a-x)*110.57,(b-y)*kx);
+  const d=pts.map(p=>km(p.u.lat,p.u.lng,c[0],c[1])), lim=Math.max(1.5,3*med(d)); let n=0;
+  pts.forEach((p,i)=>{ if(d[i]<=lim||p.u.corr) return; const b=POSB.get(codigo(p.k[0])); if(!b) return;
+    if(km(b[0],b[1],p.u.lat,p.u.lng)>0.3){ p.u={lat:b[0],lng:b[1],corr:'fuera'}; n++; } });
+  return n;
+}
 async function cargarClientes(){
   if(CLIPOS||cliCargando||!gpsClave) return; cliCargando=true; cliErr='';
   const m=new Map();
@@ -386,9 +403,13 @@ function pintarRutas(V,diaSel){
   const lHoy=LETRA[fDia(diaSel).getDay()], hoy=rDia.includes(lHoy), todo=[], ley=[]; let sinUb=0, total=0;
   // clientes ubicados de cada vendedor en la ruta del dia; las zonas se arman con todos (asi el limite respeta a los vecinos
   // aunque se mire un solo vendedor)
+  corrN=0;
   const ptsV=new Map();
   for(const v of V){ const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>[...rDia].some(l=>String(k[5]||'').includes(l)));
-    const pts=[]; for(const k of cart){ const u=CLIPOS&&CLIPOS.get(codigo(k[0])); if(u) pts.push({k,u}); else sinUb++; }
+    const pts=[]; for(const k of cart){ let u=CLIPOS&&CLIPOS.get(codigo(k[0])); const b=POSB&&POSB.get(codigo(k[0]));
+      if(!u&&b) u={lat:b[0],lng:b[1],corr:'sin'};   // sin ubicacion en Axum: la revisada del mapa de clientes
+      if(u) pts.push({k,u}); else sinUb++; }
+    corrN+=corregirFuera(pts);
     total+=cart.length; if(cart.length) ley.push({v,n:cart.length}); ptsV.set(v.c,pts); }
   const Z= $('rZona').checked? zonasDia(V.map(v=>({c:v.c, pts:ptsV.get(v.c).map(p=>[p.u.lat,p.u.lng])})).filter(g=>g.pts.length)) : {};
   for(const v of V){
@@ -404,13 +425,13 @@ function pintarRutas(V,diaSel){
       const dk=[...rDia].filter(l=>String(k[5]||'').includes(l)).map(l=>NDIA[l]);   // dias elegidos en que se visita
       // cada cliente es un punto lleno del color del vendedor; el dia que se esta mirando, borde negro = con pedido
       L.circleMarker([u.lat,u.lng],{radius:5,color: hoyC&&ped? '#111' : '#fff',weight: hoyC&&ped? 2 : 1,fillColor:v.col,fillOpacity:.95})
-        .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}<br>Ruta del ${dk.length>1? dk.slice(0,-1).join(', ')+' y '+dk[dk.length-1] : dk[0]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
+        .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}${u.corr? `<br><span style="color:#B45309">Ubicación según su dirección (en Axum ${u.corr==='sin'? 'no tiene ubicación' : 'figura fuera de la zona del vendedor'})</span>` : ''}<br>Ruta del ${dk.length>1? dk.slice(0,-1).join(', ')+' y '+dk[dk.length-1] : dk[0]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
           (hoyC? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
       todo.push([u.lat,u.lng]); }
   }
   listaVend(V);   // la lista de vendedores va en la barra azul con los 23 (ver listaVend)
   $('rInfo').textContent= cliCargando? 'Cargando ubicación de los clientes…' : cliErr? cliErr :
-    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · borde negro = con pedido' : ''}${$('rZona').checked? ' · cada zona es lo más cerca de los clientes de ese vendedor que de los de otro (no se superponen y ningún cliente queda afuera)' : ''}`;
+    `${fmtN(todo.length)} clientes en el mapa${corrN? ` · ${fmtN(corrN)} ubicados según su dirección (en Axum estaban fuera de la zona)` : ''}${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · borde negro = con pedido' : ''}${$('rZona').checked? ' · cada zona es lo más cerca de los clientes de ese vendedor que de los de otro (no se superponen y ningún cliente queda afuera)' : ''}`;
   return todo;
 }
 document.addEventListener('click',e=>{
