@@ -14,6 +14,8 @@
 //   GET /visitas?fecha=AAAA-MM-DD  con clave: pasoPoprPDVAt (por que clientes paso cada uno y cuanto estuvo)
 //   GET /jornada?fecha=AAAA-MM-DD  con clave: primerUltimaVisitaAt (hora de inicio y fin)
 //   GET /clientes?vendedores=2,4,5 con clave: allClientsPositionByVendedor (donde esta cada cliente, para dibujar las rutas)
+//   GET /recorrido?vendedores=2,4&fecha=AAAA-MM-DD  con clave: FindLocationsOfVendedorIdEnDia (por donde camino cada vendedor ese dia)
+//   GET /recorrido-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
 //   GET /clientes-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
 // La clave del panel va en el encabezado "X-Clave".
 //
@@ -180,6 +182,35 @@ function puntos(d) {
   }
   return out;
 }
+// recorrido de un vendedor en el dia: Axum no documenta la forma; se devuelve [[lat, lng, "hh:mm"], ...] en el orden en que llegaron
+function recorrido(d) {
+  let lista = Array.isArray(d) ? d : d && typeof d === 'object' ? (Object.values(d).find(Array.isArray) || []) : typeof d === 'string' ? d.split(/[;|\n]/) : [];
+  const out = [];
+  for (const x of lista) {
+    let lat = NaN, lng = NaN, hora = '';
+    if (typeof x === 'string' || Array.isArray(x)) {
+      const a = (Array.isArray(x) ? x : x.split(',')).map(s => String(s).trim()), n = a.map(Number);
+      const i = n.findIndex(esLat), j = n.findIndex((v, k) => k !== i && esLng(v)); if (i < 0 || j < 0) continue;
+      lat = n[i]; lng = n[j]; hora = (a.join(' ').match(/\b(\d{1,2}:\d{2})/) || [, ''])[1];
+    } else if (x && typeof x === 'object') {
+      const k = Object.keys(x), val = re => { const c = k.find(c => re.test(c)); return c == null ? undefined : x[c]; };
+      lat = Number(val(/^lat/i)); lng = Number(val(/^(lng|lon)/i));
+      if (!isFinite(lat) || !isFinite(lng)) { const p = String(val(/point|posic|coord|ubic|location/i) || '').split(/[,; ]+/).map(Number); lat = p.find(esLat); lng = p.find(esLng); }
+      hora = (String(val(/hora|fecha|date|time/i) || '').match(/\b(\d{1,2}:\d{2})/) || [, ''])[1];
+    }
+    if (esLat(lat) && esLng(lng)) out.push([lat, lng, hora]);
+  }
+  return out;
+}
+// mismo criterio de fechas que conFecha, pero esta funcion pide el dato "dia"
+async function recorridoDe(env, v, fecha) {
+  const orden = formatoOk == null ? FORMATOS.map((_, i) => i) : [formatoOk, ...FORMATOS.map((_, i) => i).filter(i => i !== formatoOk)];
+  let d = null;
+  for (const id of v.length < 3 ? [v, v.padStart(3, '0')] : [v])
+    for (const i of orden) { try { d = await llamar(env, 'FindLocationsOfVendedorIdEnDia', { idVendedor: id, dia: FORMATOS[i](fecha) }); if (recorrido(d).length) return d; } catch (e) {} }
+  return d;
+}
+
 // Axum puede tener el vendedor como "2" o "002": si con uno no hay clientes se prueba el otro
 async function clientesDe(env, v) {
   let d = await llamar(env, 'allClientsPositionByVendedor', { idVendedor: v });
@@ -292,6 +323,10 @@ export default {
         const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await clientesDe(env, v);
         return json(req, { ok: true, forma: forma(d), reconocidos: puntos(d).length });
       }
+      if (ruta === '/recorrido-forma') {
+        const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await recorridoDe(env, v, hoyAR());
+        return json(req, { ok: true, forma: forma(d), reconocidos: recorrido(d).length });
+      }
       if (ruta === '/ventas') {
         // venta en vivo de Axum Preventa SIN clave (como los reportes de ventas de Gescom, que ya son publicos):
         // solo estas tres consultas de la pantalla "Pedidos agrupados"; las posiciones del GPS siguen con clave
@@ -311,6 +346,12 @@ export default {
         const datos = {};
         await Promise.all(vs.map(async v => { datos[v] = await conCache('clientes-' + v, async () => { const p = puntos(await clientesDe(env, v)); if (!p.length) throw new Error('sin clientes'); return p; }, 6 * 3600).catch(() => []); }));
         return json(req, { ok: true, datos });
+      }
+      if (ruta === '/recorrido') {
+        // de a pocos vendedores por pedido; lo de hoy se guarda 2 minutos (va creciendo), un dia pasado 6 horas
+        const vs = (url.searchParams.get('vendedores') || '').split(',').map(s => s.trim()).filter(s => /^\d{1,4}$/.test(s)).slice(0, 8), datos = {};
+        await Promise.all(vs.map(async v => { datos[v] = await conCache('recorrido-' + v + '-' + fecha, async () => recorrido(await recorridoDe(env, v, fecha)), fecha === hoyAR() ? 120 : 6 * 3600).catch(() => []); }));
+        return json(req, { ok: true, fecha, datos });
       }
       if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);
