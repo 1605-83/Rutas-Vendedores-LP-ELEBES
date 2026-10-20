@@ -14,6 +14,12 @@
 //   GET /visitas?fecha=AAAA-MM-DD  con clave: pasoPoprPDVAt (por que clientes paso cada uno y cuanto estuvo)
 //   GET /jornada?fecha=AAAA-MM-DD  con clave: primerUltimaVisitaAt (hora de inicio y fin)
 // La clave del panel va en el encabezado "X-Clave".
+//
+// Axum Preventa (pedidos en vivo). Secretos: AXUM_PREV_USUARIO y AXUM_PREV_CLAVE.
+//   GET /prev-js                   sin clave: codigo JavaScript de las pantallas (como piden sus datos), para ajustar filtros
+//   GET /prev-forma?cmd=..&webmethod=..&...   sin clave: forma de la respuesta con los valores enmascarados
+//   GET /prev?cmd=..&webmethod=..&...         con clave: la respuesta completa
+// Solo se permiten funciones de lectura (Get..., Select..., VerTabla).
 
 const AXUM = 'https://gps.axumvm.com.ar';
 const ORIGENES = ['https://1605-83.github.io', 'http://localhost:8767', 'http://localhost:8768'];
@@ -150,6 +156,56 @@ async function conCache(clave, fn) {
 
 const hoyAR = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
 
+// ---------------- Axum Preventa (www.axum.com.ar/elebes) ----------------
+const PREV = 'https://www.axum.com.ar/elebes';
+const NAVP = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-AR,es;q=0.9' };
+let sesionPrev = null;
+// el formulario usa ctl03$UserName / ctl03$Password: URLSearchParams los manda como ctl03%24UserName (lo que pide Axum)
+async function entrarPrev(env) {
+  if (sesionPrev && sesionPrev.hasta > Date.now()) return sesionPrev.cookie;
+  if (!env.AXUM_PREV_USUARIO || !env.AXUM_PREV_CLAVE) throw new Error('Faltan los secretos AXUM_PREV_USUARIO y AXUM_PREV_CLAVE');
+  const r1 = await fetch(PREV + '/Login.aspx', { redirect: 'manual', headers: NAVP });
+  const html = await r1.text(), c1 = cookiesDe(r1);
+  const form = new URLSearchParams();
+  form.set('__VIEWSTATE', campo(html, '__VIEWSTATE'));
+  form.set('__VIEWSTATEGENERATOR', campo(html, '__VIEWSTATEGENERATOR'));
+  const ev = campo(html, '__EVENTVALIDATION'); if (ev) form.set('__EVENTVALIDATION', ev);
+  form.set('ctl03$UserName', env.AXUM_PREV_USUARIO);
+  form.set('ctl03$Password', env.AXUM_PREV_CLAVE);
+  form.set('ctl03$Button1', 'Ingresar');
+  const r2 = await fetch(PREV + '/Login.aspx', { method: 'POST', redirect: 'manual', body: form.toString(),
+    headers: { ...NAVP, 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': c1, 'Origin': 'https://www.axum.com.ar', 'Referer': PREV + '/Login.aspx' } });
+  const c2 = cookiesDe(r2), destino = r2.headers.get('Location') || '';
+  const html2 = r2.status === 200 ? await r2.text() : '';
+  const ok = (destino && !/login\.aspx/i.test(destino)) || (r2.status === 200 && html2 && !/ctl03_Password/i.test(html2)) || /ASPXAUTH|\.AUTH/i.test(c2);
+  if (!ok) {
+    const txt = html2.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    throw new Error(`Axum Preventa no acepto el ingreso (respuesta ${r2.status}${destino ? ', va a ' + destino : ''}, cookies: ${c2.split('; ').map(c => c.split('=')[0]).filter(Boolean).join(',') || 'ninguna'}, pantalla: ${txt.slice(0, 200)})`);
+  }
+  sesionPrev = { cookie: [c1, c2].filter(Boolean).join('; '), hasta: Date.now() + SESION_SEG * 1000 };
+  return sesionPrev.cookie;
+}
+// solo funciones de lectura
+const LECTURA = /^(Get|Select|VerTabla|Ver|Buscar|Listar|Obtener)/i;
+async function llamarPrev(env, cmd, webmethod, extra = {}) {
+  if (!/^[A-Za-z0-9_]+$/.test(cmd || '') || !LECTURA.test(webmethod || '')) throw new Error('Solo se permiten funciones de lectura');
+  const q = new URLSearchParams({ cmd: cmd.endsWith('_WebService') ? cmd : cmd + '_WebService', webmethod, ...extra });
+  for (let intento = 0; intento < 2; intento++) {
+    const cookie = await entrarPrev(env);
+    const r = await fetch(PREV + '/controllerView.aspx?' + q.toString(), { redirect: 'manual', headers: { ...NAVP, 'Accept': 'application/json, text/javascript, */*', 'X-Requested-With': 'XMLHttpRequest', 'Cookie': cookie } });
+    if (r.status === 302 || r.status === 401) { sesionPrev = null; continue; }
+    const txt = await r.text();
+    if (/ctl03_Password/.test(txt)) { sesionPrev = null; continue; }   // rebota al login: sesion vencida
+    if (!r.ok) throw new Error(`Axum Preventa respondio ${r.status}: ${txt.slice(0, 200)}`);
+    try { let j = JSON.parse(txt); if (j && typeof j === 'object' && 'd' in j) j = j.d; if (typeof j === 'string' && /^\s*[\[{]/.test(j)) j = JSON.parse(j); return j; }
+    catch (e) { return { texto: txt.slice(0, 2000) }; }
+  }
+  throw new Error('No se pudo mantener la sesion de Axum Preventa');
+}
+// parametros extra de la URL (todo menos cmd y webmethod)
+const extrasDe = url => Object.fromEntries([...url.searchParams].filter(([k]) => !['cmd', 'webmethod', 'x', 't'].includes(k)));
+
 export default {
   async fetch(req, env) {
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors(req) });
@@ -181,11 +237,30 @@ export default {
         }
         return json(req, { ok: true, fecha: f, formatoFecha: formatoOk, estructura: out });
       }
+      if (ruta === '/prev-js') {
+        // como piden sus datos las pantallas de Preventa (codigo, no datos): los llamados a webmethod y VerTabla
+        const cookie = await entrarPrev(env), out = {};
+        for (const cmd of (url.searchParams.get('pantallas') || 'VerPedidosAgrupados,ActualizarBase').split(',')) {
+          const r = await fetch(PREV + '/controllerView.aspx?cmd=' + encodeURIComponent(cmd), { headers: { ...NAVP, 'Cookie': cookie } });
+          const html = await r.text();
+          const srcs = [...html.matchAll(/<script[^>]+src="([^"]+)"/gi)].map(m => m[1]).filter(s => !/jquery|bootstrap|kendo|moment|select2|datatable/i.test(s));
+          let codigo = [...html.matchAll(/<script(?![^>]*src)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]).join('\n');
+          for (const s of srcs.slice(0, 8)) { try { const u = new URL(s, PREV + '/'); const rj = await fetch(u, { headers: { ...NAVP, 'Cookie': cookie } }); codigo += '\n//' + u.pathname + '\n' + await rj.text(); } catch (e) {} }
+          const trozos = []; for (const m of codigo.matchAll(/[^\n;]{0,160}(webmethod|VerTabla|_WebService|filtro|filter|gte)[^\n;]{0,200}/gi)) { if (trozos.length < 60) trozos.push(m[0].trim()); }
+          out[cmd] = { estado: r.status, scripts: srcs, llamados: [...new Set(trozos)] };
+        }
+        return json(req, { ok: true, pantallas: out });
+      }
+      if (ruta === '/prev-forma') {
+        const d = await llamarPrev(env, url.searchParams.get('cmd'), url.searchParams.get('webmethod'), extrasDe(url));
+        return json(req, { ok: true, forma: forma(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : d)), claves: d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : null });
+      }
       // de aca en adelante hay datos de personas: piden la clave del panel
       if (!env.PANEL_CLAVE || !igual(req.headers.get('X-Clave'), env.PANEL_CLAVE)) return json(req, { ok: false, error: 'Clave del panel incorrecta' }, 401);
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('fecha') || '') ? url.searchParams.get('fecha') : hoyAR();
       if (ruta === '/posiciones') return json(req, { ok: true, datos: await conCache('posiciones', () => llamar(env, 'lastPositions', {})) });
       if (ruta === '/visitas') return json(req, { ok: true, fecha, datos: await conCache('visitas-' + fecha, () => conFecha(env, 'pasoPoprPDVAt', fecha)) });
+      if (ruta === '/prev') return json(req, { ok: true, datos: await conCache('prev-' + url.search, () => llamarPrev(env, url.searchParams.get('cmd'), url.searchParams.get('webmethod'), extrasDe(url))) });
       if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);
     } catch (e) {
