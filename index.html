@@ -268,12 +268,17 @@ function dibujar(){
     <div class="kpi" style="--c:var(--azul)"><div class="l">Vendido</div><div class="v">${fmt$(venta)}</div><div class="n">${fmtN(ped)} pedidos cargados</div></div>
     <div class="kpi" style="--c:var(--verde)"><div class="l">Al día</div><div class="v">${bien}</div><div class="n">vendedores con 70% o más de la ruta con pedido</div></div>
     <div class="kpi" style="--c:var(--violeta)"><div class="l">Última lectura</div><div class="v" style="font-size:1.5rem">${esc(corte.split(' ')[1]||'—')}</div><div class="n">base de Gescom del ${esc(corte.split(' ')[0]||'')}</div></div>`;
-  const val={c:v=>v.c,n:v=>v.n,ruta:v=>v.ruta.length,visit:v=>v.visit,p:v=>v.p??-1,fuera:v=>v.fuera,ped:v=>v.pedidos,venta:v=>v.venta,dev:v=>v.dev,gv:v=>v.gv??-1};
+  const val={c:v=>v.c,n:v=>v.n,ruta:v=>v.ruta.length,visit:v=>v.visit,p:v=>v.p??-1,fuera:v=>v.fuera,ped:v=>v.pedidos,venta:v=>v.venta,dev:v=>v.dev,gv:v=>v.gv??-1,
+    // inicio en minutos del dia; ultima senal = minutos desde la ultima posicion (sin senal va ultimo); estado de peor a mejor
+    ini:v=>{ const t=v.g&&v.g.jor&&v.g.jor.ini; return t? minutosDe(t) : -1; },
+    senal:v=>{ const p=v.g&&v.g.pos; return p&&p.min!=null? minAhora()-p.min : 99999; },
+    est:v=>({'Sin pedidos':0,'Sin ruta':1,'Atrasado':2,'En curso':3,'Bien':4})[estado(v)[1]]};
   const L=[...V].sort((a,b)=>{ const A=val[sortK](a), Bv=val[sortK](b); return (A>Bv?1:A<Bv?-1:0)*sortD || a.c-b.c; });
-  const th=(k,t,cls)=>`<th class="${cls||''}" data-k="${k}">${t}${sortK===k? (sortD>0?' ▲':' ▼') : ''}</th>`;
+  // todas las columnas se ordenan: el primer toque ordena de mayor a menor, el segundo de menor a mayor
+  const th=(k,t,cls)=>`<th class="${cls||''}" data-k="${k}" title="Ordenar por ${t.toLowerCase()}">${t}${sortK===k? (sortD>0?' ▲':' ▼') : ' <span style="opacity:.35">⇅</span>'}</th>`;
   // En vivo: avance de la ruta (tocando un vendedor se ven sus clientes de ruta)
   const gps=!!GPS, nc=gps? 9 : 6;
-  let h=`<thead><tr>${th('n','Vendedor','l')}${th('ruta','Ruta')}${gps? th('gv','Visitados GPS') : ''}${th('visit','Con pedido')}${th('p','Avance')}${th('fuera','Fuera de ruta')}${gps? '<th>Inicio</th><th>Última señal</th>' : ''}<th class="l">Estado</th></tr></thead><tbody>`;
+  let h=`<thead><tr>${th('n','Vendedor','l')}${th('ruta','Ruta')}${gps? th('gv','Visitados GPS') : ''}${th('visit','Con pedido')}${th('p','Avance')}${th('fuera','Fuera de ruta')}${gps? th('ini','Inicio')+th('senal','Última señal') : ''}${th('est','Estado','l')}</tr></thead><tbody>`;
   for(const v of L){ const [ec,et]=estado(v), ab=abiertos.has(v.c), p=v.g&&v.g.pos, hace=p&&p.min!=null? ahora-p.min : null;
     h+=`<tr class="fila" data-v="${v.c}"><td class="l">${nombre(v)}</td><td>${v.ruta.length}</td>${gps? `<td>${v.gv} <span style="color:var(--ink2)">(${v.gT} en total)</span></td>` : ''}<td>${v.visit}</td><td>${prog(v.p)}</td><td>${v.fuera}</td>`+
       `${gps? `<td>${esc(v.g.jor? v.g.jor.ini : '—')}</td><td>${p? `${esc(p.hora)}${hace!=null&&hace>=0? ` <span style="color:${hace>15?'var(--rojo)':'var(--verde)'}">(${hace} min)</span>` : ''}` : '<span style="color:var(--rojo)">Sin señal</span>'}</td>` : ''}<td class="l"><span class="est ${ec}">${et}</span></td></tr>`;
