@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rutas de Vendedores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F4F6FA;--card:#fff;--ink:#141A26;--ink2:#6B7383;--line:#E4E8EF;--side:#0F1A33;--side2:#1A2747;--azul:#2F6FDE;--violeta:#4B3FB8;--verde:#1E9E63;--naranja:#F0A020;--rojo:#D23C3C}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#F4F6FA; } }
+:root[data-theme="dark"]{ --bg:#F4F6FA; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-variant-numeric:tabular-nums;line-height:1.35}
+.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+aside{background:var(--side);color:#fff;padding:18px 12px;position:sticky;top:0;height:100vh}
+.marca{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
+.logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#3B6FE0,#5B3FC8);display:flex;align-items:center;justify-content:center;font-weight:800}
+.marca b{display:block;font-size:1.05rem}.marca small{color:#AEB8D0;font-size:.78rem}
+aside button{display:flex;align-items:center;gap:12px;width:100%;font:inherit;font-size:.95rem;font-weight:600;color:#D9DFEC;background:none;border:0;border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;margin-bottom:4px}
+aside button:hover{background:var(--side2)}aside button[aria-current="page"]{background:var(--side2);color:#fff}
+aside button i{font-style:normal;width:18px;text-align:center;opacity:.85}
+aside .pie{position:absolute;bottom:16px;left:12px;right:12px;font-size:.72rem;color:#8E99B5;padding:0 8px}
+main{padding:18px 24px 40px;min-width:0}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
+.top h1{margin:0;font-size:1.3rem;font-weight:800}.top .fecha{color:var(--ink2);font-size:.92rem;text-transform:capitalize}
+select,input{font:inherit;font-size:.92rem;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+@media (max-width:1250px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--card);border-radius:14px;padding:16px 18px;box-shadow:0 1px 3px rgba(16,24,40,.06);border-top:4px solid var(--c,#2F6FDE);position:relative;min-width:0}
+.kpi .l{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.kpi .v{font-size:1.9rem;font-weight:800;margin:6px 0 4px}.kpi .v small{font-size:.5em;color:var(--ink2)}
+.kpi .n{font-size:.84rem;color:var(--ink2)}
+.anillo{position:absolute;right:16px;top:50%;transform:translateY(-35%);width:56px;height:56px}
+h2{display:flex;align-items:center;gap:12px;font-size:.8rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin:26px 0 12px}
+h2::after{content:"";flex:1;height:1px;background:var(--line)}
+.card{background:var(--card);border-radius:14px;box-shadow:0 1px 3px rgba(16,24,40,.06);overflow:hidden}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:860px}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2);background:#FAFBFD;cursor:pointer;user-select:none}
+.l{text-align:left}
+tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
+.cod{display:inline-block;min-width:2.3em;margin-right:8px;padding:1px 7px;border-radius:6px;background:#E6EEFF;color:var(--azul);font-size:.82em;font-weight:700;text-align:center}
+.av{display:inline-flex;width:28px;height:28px;border-radius:50%;color:#fff;font-size:.7rem;font-weight:800;align-items:center;justify-content:center;margin-right:8px;vertical-align:middle}
+.prog{display:inline-block;width:110px;height:8px;border-radius:4px;background:#EDF0F5;overflow:hidden;vertical-align:middle;margin-right:8px}.prog i{display:block;height:100%}
+.est{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.76rem;font-weight:700}
+.e-ok{background:#E2F6EC;color:var(--verde)}.e-mid{background:#FFF3DC;color:#A86A00}.e-no{background:#FDE7E7;color:var(--rojo)}.e-gris{background:#EEF0F4;color:#666}
+.det td{background:#FAFBFD;white-space:normal;text-align:left;padding:12px 16px}
+.det table{min-width:640px;background:#fff;border:1px solid var(--line);border-radius:10px;font-size:.85rem}
+.det th{position:static}
+.mapa{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;min-height:180px;padding:24px;text-align:center;color:var(--ink2);background:repeating-linear-gradient(45deg,#F7F9FC,#F7F9FC 12px,#F0F3F8 12px,#F0F3F8 24px)}
+.mapa b{color:var(--ink);font-size:1rem}
+.adv{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--line)}
+.adv:last-child{border-bottom:0}
+.adv .ic{flex:0 0 30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800}
+.adv b{display:block}.adv span{color:var(--ink2);font-size:.86rem}
+.vacio{padding:24px;text-align:center;color:var(--ink2)}
+[hidden]{display:none!important}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  aside{position:sticky;top:0;height:auto;z-index:5;display:flex;align-items:center;gap:6px;padding:8px 10px;overflow-x:auto}
+  .marca{border:0;margin:0;padding:0 8px 0 0}.marca div{display:none}
+  aside button{width:auto;white-space:nowrap;margin:0;padding:9px 12px}
+  aside .pie{display:none}
+  main{padding:14px 16px 40px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="marca"><span class="logo">◎</span><div><b>Rutas</b><small>Fuerza de venta</small></div></div>
+    <nav aria-label="Secciones">
+      <button type="button" data-p="vivo" aria-current="page"><i>◆</i>En vivo</button>
+      <button type="button" data-p="resumen"><i>▦</i>Resumen</button>
+      <button type="button" data-p="adv"><i>⚠</i>Advertencias</button>
+      <button type="button" data-p="vend"><i>☰</i>Vendedores</button>
+    </nav>
+    <div class="pie">Datos de Gescom (pedidos y carteras). El mapa en vivo se suma al conectar Axum GPS.</div>
+  </aside>
+  <main>
+    <div class="top">
+      <div><h1 id="titulo">Cómo va la ruta de hoy</h1><div class="fecha" id="fechaTxt">Cargando…</div></div>
+      <select id="dia" aria-label="Día de carga"></select>
+    </div>
+    <section class="kpis" id="kpis"></section>
+
+    <div data-panel="vivo">
+      <h2>Posiciones</h2>
+      <div class="card mapa"><b>Mapa en vivo de los vendedores</b><span>Se activa cuando conectemos el servidor de Axum GPS: posición de cada vendedor, quién está transmitiendo y clientes visitados.</span></div>
+      <h2>Ruta de hoy por vendedor</h2>
+      <div class="card tbl"><table id="tVivo"></table></div>
+    </div>
+    <div data-panel="resumen" hidden>
+      <h2>Resumen del día por vendedor</h2>
+      <div class="card tbl"><table id="tRes"></table></div>
+    </div>
+    <div data-panel="adv" hidden>
+      <h2>Advertencias del día</h2>
+      <div class="card" id="lAdv"></div>
+    </div>
+    <div data-panel="vend" hidden>
+      <h2>Vendedor</h2>
+      <div style="margin-bottom:12px"><select id="vSel" aria-label="Vendedor"></select></div>
+      <div class="card tbl"><table id="tVend"></table></div>
+    </div>
+  </main>
+</div>
+<script>
+const B='https://1605-83.github.io/Reporte-Diario-Ventas/', RAW='https://raw.githubusercontent.com/1605-83/Reporte-Diario-Ventas/main/';
+// los 23 vendedores de calle (pedido de Bruno)
+const VEND=[2,4,5,6,7,24,26,27,28,29,30,51,52,53,54,56,61,62,63,64,73,74,75];
+const COLORES=['#2F6FDE','#1E9E63','#E2603A','#7B4FD6','#D4A017','#0E9AA7','#C2417A','#5B6B8C','#3B9D3B','#B85C1E','#2A7DE1','#8E44AD'];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num=s=>{ s=String(s??'').trim(); return s? (parseFloat(s.replace(/\./g,'').replace(',','.'))||0) : 0; };
+const fmt$=n=>'$'+Math.round(n).toLocaleString('es-AR'), fmtN=n=>Math.round(n).toLocaleString('es-AR');
+const fmtP=p=>p==null? '—' : Math.round(p*100)+'%';
+const titulo=s=>{ s=(s||'').trim(); if(!(s===s.toUpperCase() && /[A-ZÁÉÍÓÚÑ]/.test(s))) return s; return s.toLowerCase().replace(/(^|[^a-záéíóúñü])([a-záéíóúñü])/g,(m,a,b)=>a+b.toUpperCase()); };
+const inic=n=>(n||'').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'], LETRA=['','L','M','X','J','V','S'];
+const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const fDia=d=>{ const [dd,mm,yy]=d.split('-'); return new Date(+yy,mm-1,+dd); };
+let FILAS=[], CART=null, NOMV={}, corte='', panel='vivo', abiertos=new Set(), sortK='p', sortD=-1;
+
+function parseCSV(t){
+  const rows=[]; let row=[], f='', q=false;
+  for(let i=0;i<t.length;i++){ const ch=t[i];
+    if(q){ if(ch==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=ch; }
+    else if(ch==='"') q=true; else if(ch===';'){ row.push(f); f=''; }
+    else if(ch==='\n'){ row.push(f.replace(/\r$/,'')); rows.push(row); row=[]; f=''; } else f+=ch; }
+  if(f!==''||row.length){ row.push(f.replace(/\r$/,'')); rows.push(row); }
+  return rows;
+}
+function cargar(txt){
+  const R=parseCSV(txt).filter(r=>r.length>5); const H=R.shift().map(h=>h.trim()); const ix=n=>H.indexOf(n);
+  const I={cli:ix('Cliente'),nro:ix('NroComprobante'),imp:ix('ImporteItem'),rs:ix('RazonSocial'),cv:ix('CodVendedor'),vn:ix('Vendedor'),car:ix('FechaCarga')};
+  const ok=new Set(VEND);
+  FILAS=R.map(r=>{ const nro=(r[I.nro]||'').trim(), tc=nro.slice(0,3).toUpperCase(), v=parseInt(r[I.cv],10);
+      if(!NOMV[v] && r[I.vn]) NOMV[v]=titulo(r[I.vn]);
+      return {v, cli:String(r[I.cli]).trim(), rs:(r[I.rs]||'').trim(), nro, op: tc==='NCR'? 'DEV' : tc==='NDB'? 'NDB' : 'VEN', imp:num(r[I.imp]), car:(r[I.car]||'').trim()}; })
+    .filter(f=>ok.has(f.v) && /^\d{2}-\d{2}-\d{4}$/.test(f.car));
+}
+
+// calculo del dia por vendedor: ruta (cartera con visita ese dia), clientes con pedido, fuera de ruta, vendido, devoluciones
+function calcular(dia){
+  const letra=LETRA[fDia(dia).getDay()]||'';
+  return VEND.map((c,i)=>{
+    const D=FILAS.filter(x=>x.v===c && x.car===dia);
+    const cart=(CART&&CART.v&&CART.v[String(c)])||[];
+    const ruta=letra? cart.filter(k=>k[5]===letra) : [];
+    const enRuta=new Set(ruta.map(k=>String(k[0])));
+    const comp=new Map(); D.filter(x=>x.op==='VEN').forEach(x=>{ const o=comp.get(x.cli)||{imp:0,rs:x.rs,nro:new Set()}; o.imp+=x.imp; o.nro.add(x.nro); comp.set(x.cli,o); });
+    const visit=[...comp.keys()].filter(k=>enRuta.has(k)).length, fuera=[...comp.keys()].filter(k=>!enRuta.has(k)).length;
+    const venta=D.filter(x=>x.op==='VEN').reduce((a,x)=>a+x.imp,0), dev=-D.filter(x=>x.op==='DEV').reduce((a,x)=>a+x.imp,0);
+    const pedidos=new Set(D.filter(x=>x.op==='VEN').map(x=>x.nro)).size;
+    return {c, n:NOMV[c]||('Vendedor '+c), col:COLORES[i%COLORES.length], ruta, visit, fuera, venta, dev, pedidos, comp, p: ruta.length? visit/ruta.length : null};
+  });
+}
+const estado=v=> v.pedidos===0? ['e-no','Sin pedidos'] : v.p==null? ['e-gris','Sin ruta'] : v.p>=.7? ['e-ok','Bien'] : v.p>=.4? ['e-mid','En curso'] : ['e-no','Atrasado'];
+const prog=p=>`<span class="prog"><i style="width:${Math.min(100,(p||0)*100)}%;background:${p>=.7?'var(--verde)':p>=.4?'var(--naranja)':'var(--rojo)'}"></i></span>${fmtP(p)}`;
+const nombre=v=>`<span class="av" style="background:${v.col}">${esc(inic(v.n))}</span><span class="cod">${v.c}</span>${esc(v.n)}`;
+
+function dibujar(){
+  const dia=$('dia').value; if(!dia) return;
+  const f=fDia(dia), V=calcular(dia);
+  $('fechaTxt').textContent=`${DIAS[f.getDay()]}, ${f.getDate()} de ${MESES[f.getMonth()]} · datos al ${corte}`;
+  const activos=V.filter(v=>v.pedidos>0).length, rT=V.reduce((a,v)=>a+v.ruta.length,0), vT=V.reduce((a,v)=>a+v.visit,0), venta=V.reduce((a,v)=>a+v.venta,0), ped=V.reduce((a,v)=>a+v.pedidos,0), bien=V.filter(v=>v.p!=null&&v.p>=.7).length;
+  const pR=rT? vT/rT : 0, C=2*Math.PI*22;
+  $('kpis').innerHTML=`
+    <div class="kpi" style="--c:var(--naranja)"><div class="l">Con pedidos</div><div class="v">${activos}</div><div class="n">de ${VEND.length} vendedores de calle</div></div>
+    <div class="kpi" style="--c:var(--violeta)"><div class="l">Ruta de hoy</div><div class="v">${fmtP(pR)}</div><div class="n">${fmtN(vT)} de ${fmtN(rT)} clientes con pedido</div>
+      <svg class="anillo" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="22" fill="none" stroke="#EDF0F5" stroke-width="7"/><circle cx="28" cy="28" r="22" fill="none" stroke="var(--violeta)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${pR*C} ${C}" transform="rotate(-90 28 28)"/></svg></div>
+    <div class="kpi" style="--c:var(--azul)"><div class="l">Vendido</div><div class="v">${fmt$(venta)}</div><div class="n">${fmtN(ped)} pedidos cargados</div></div>
+    <div class="kpi" style="--c:var(--verde)"><div class="l">Al día</div><div class="v">${bien}</div><div class="n">vendedores con 70% o más de la ruta con pedido</div></div>
+    <div class="kpi" style="--c:var(--violeta)"><div class="l">Última lectura</div><div class="v" style="font-size:1.5rem">${esc(corte.split(' ')[1]||'—')}</div><div class="n">base de Gescom del ${esc(corte.split(' ')[0]||'')}</div></div>`;
+  const val={c:v=>v.c,n:v=>v.n,ruta:v=>v.ruta.length,visit:v=>v.visit,p:v=>v.p??-1,fuera:v=>v.fuera,ped:v=>v.pedidos,venta:v=>v.venta,dev:v=>v.dev};
+  const L=[...V].sort((a,b)=>{ const A=val[sortK](a), Bv=val[sortK](b); return (A>Bv?1:A<Bv?-1:0)*sortD || a.c-b.c; });
+  const th=(k,t,cls)=>`<th class="${cls||''}" data-k="${k}">${t}${sortK===k? (sortD>0?' ▲':' ▼') : ''}</th>`;
+  // En vivo: avance de la ruta (tocando un vendedor se ven sus clientes de ruta)
+  let h=`<thead><tr>${th('n','Vendedor','l')}${th('ruta','Ruta')}${th('visit','Con pedido')}${th('p','Avance')}${th('fuera','Fuera de ruta')}<th class="l">Estado</th></tr></thead><tbody>`;
+  for(const v of L){ const [ec,et]=estado(v), ab=abiertos.has(v.c);
+    h+=`<tr class="fila" data-v="${v.c}"><td class="l">${nombre(v)}</td><td>${v.ruta.length}</td><td>${v.visit}</td><td>${prog(v.p)}</td><td>${v.fuera}</td><td class="l"><span class="est ${ec}">${et}</span></td></tr>`;
+    if(ab) h+=`<tr class="det"><td colspan="6">${clientes(v)}</td></tr>`; }
+  $('tVivo').innerHTML=h+'</tbody>';
+  // Resumen: numeros del dia
+  h=`<thead><tr>${th('n','Vendedor','l')}${th('ped','Pedidos')}${th('venta','Vendido')}${th('dev','Devoluciones')}${th('visit','Clientes de ruta')}${th('fuera','Fuera de ruta')}${th('p','% ruta')}</tr></thead><tbody>`;
+  for(const v of L) h+=`<tr><td class="l">${nombre(v)}</td><td>${v.pedidos}</td><td><b>${fmt$(v.venta)}</b></td><td>${fmt$(v.dev)}</td><td>${v.visit} de ${v.ruta.length}</td><td>${v.fuera}</td><td>${fmtP(v.p)}</td></tr>`;
+  h+=`<tr><td class="l"><b>Total equipo</b></td><td><b>${fmtN(ped)}</b></td><td><b>${fmt$(venta)}</b></td><td><b>${fmt$(V.reduce((a,v)=>a+v.dev,0))}</b></td><td><b>${fmtN(vT)} de ${fmtN(rT)}</b></td><td><b>${fmtN(V.reduce((a,v)=>a+v.fuera,0))}</b></td><td><b>${fmtP(pR)}</b></td></tr>`;
+  $('tRes').innerHTML=h+'</tbody>';
+  // Advertencias
+  const A=[];
+  V.filter(v=>v.pedidos===0 && v.ruta.length).forEach(v=>A.push(['var(--rojo)','!',`${v.c} · ${v.n}: sin pedidos cargados`,`Tiene ${v.ruta.length} clientes en la ruta del ${DIAS[f.getDay()]}.`]));
+  V.filter(v=>v.pedidos>0 && v.p!=null && v.p<.4).forEach(v=>A.push(['var(--naranja)','↓',`${v.c} · ${v.n}: ruta atrasada (${fmtP(v.p)})`,`${v.visit} de ${v.ruta.length} clientes de la ruta con pedido.`]));
+  V.filter(v=>v.ruta.length && v.fuera>v.visit && v.pedidos>0).forEach(v=>A.push(['var(--violeta)','↗',`${v.c} · ${v.n}: más pedidos fuera de ruta que en ruta`,`${v.fuera} clientes fuera de la ruta del día y ${v.visit} en ruta.`]));
+  V.filter(v=>v.venta>0 && v.dev/v.venta>.06).forEach(v=>A.push(['var(--rojo)','↺',`${v.c} · ${v.n}: devoluciones altas`,`${fmt$(v.dev)} = ${fmtP(v.dev/v.venta)} de lo vendido en el día.`]));
+  $('lAdv').innerHTML=A.map(a=>`<div class="adv"><span class="ic" style="background:${a[0]}1a;color:${a[0]}">${a[1]}</span><div><b>${esc(a[2])}</b><span>${esc(a[3])}</span></div></div>`).join('')||'<div class="vacio">Sin advertencias para este día.</div>';
+  // Vendedor elegido: todos sus clientes de ruta y los de fuera de ruta
+  const v=V.find(x=>String(x.c)===$('vSel').value)||V[0];
+  $('tVend').innerHTML=v? `<thead><tr><th class="l" colspan="5">${nombre(v)} · ${v.visit} de ${v.ruta.length} clientes de ruta con pedido · ${fmt$(v.venta)}</th></tr></thead><tbody><tr><td colspan="5" class="l" style="white-space:normal">${clientes(v)}</td></tr></tbody>` : '';
+}
+function clientes(v){
+  const filas=v.ruta.map(k=>{ const o=v.comp.get(String(k[0])); return {cod:String(k[0]),rs:k[1],loc:k[3],ok:!!o,imp:o?o.imp:0,en:true}; });
+  for(const [cli,o] of v.comp) if(!v.ruta.some(k=>String(k[0])===cli)) filas.push({cod:cli,rs:o.rs,loc:'',ok:true,imp:o.imp,en:false});
+  filas.sort((a,b)=>(b.en-a.en)||(a.ok-b.ok)||b.imp-a.imp);
+  return `<table><thead><tr><th class="l">Cliente</th><th class="l">Razón social</th><th class="l">Localidad</th><th class="l">Estado</th><th>Pedido</th></tr></thead><tbody>${filas.map(x=>`<tr><td class="l"><b>${esc(x.cod)}</b></td><td class="l">${esc(titulo(x.rs))}</td><td class="l">${esc(titulo(x.loc))}</td><td class="l">${x.en? (x.ok? '<span class="est e-ok">Con pedido</span>' : '<span class="est e-no">Sin pedido</span>') : '<span class="est e-gris">Fuera de ruta</span>'}</td><td>${x.imp? fmt$(x.imp) : ''}</td></tr>`).join('')||'<tr><td colspan="5" class="l">Sin clientes de ruta este día.</td></tr>'}</tbody></table>`;
+}
+function verPanel(p){ panel=p; document.querySelectorAll('[data-panel]').forEach(d=>d.hidden=d.dataset.panel!==p);
+  document.querySelectorAll('aside [data-p]').forEach(b=>b.toggleAttribute('aria-current',b.dataset.p===p)); document.querySelectorAll('aside [data-p][aria-current]').forEach(b=>b.setAttribute('aria-current','page'));
+  $('titulo').textContent={vivo:'Cómo va la ruta de hoy',resumen:'Resumen del día',adv:'Advertencias',vend:'Vendedores'}[p]; }
+document.addEventListener('click',e=>{
+  const nb=e.target.closest('aside [data-p]'); if(nb){ verPanel(nb.dataset.p); return; }
+  const tr=e.target.closest('#tVivo tr.fila'); if(tr){ const c=+tr.dataset.v; abiertos.has(c)? abiertos.delete(c) : abiertos.add(c); dibujar(); return; }
+  const th=e.target.closest('th[data-k]'); if(th){ const k=th.dataset.k; if(sortK===k) sortD=-sortD; else { sortK=k; sortD=(k==='n'||k==='c')? 1 : -1; } dibujar(); }
+});
+$('dia').addEventListener('change',dibujar); $('vSel').addEventListener('change',dibujar);
+
+(async function(){
+  try{
+    const html=await (await fetch(B+'index.html?t='+Date.now(),{cache:'no-store'})).text();
+    const m=html.match(/^const CFG = (.*);\s*$/m); if(m) JSON.parse(m[1]).vendedores.forEach(v=>NOMV[v.c]=v.n);
+    try{ const r=await fetch(B+'carteras.json?t='+Date.now(),{cache:'no-store'}); if(r.ok) CART=await r.json(); }catch(e){}
+    if(CART&&CART.v){   // la base trae acentos mal guardados (doble codificacion: "Ã±" = "ñ", "Ã‘" = "Ñ"): se rearman los bytes y se leen como UTF-8
+      const CP={'€':128,'‚':130,'ƒ':131,'„':132,'…':133,'†':134,'‡':135,'ˆ':136,'‰':137,'Š':138,'‹':139,'Œ':140,'Ž':142,'‘':145,'’':146,'“':147,'”':148,'•':149,'–':150,'—':151,'˜':152,'™':153,'š':154,'›':155,'œ':156,'ž':158,'Ÿ':159};
+      const dec=m=>{ const b=[]; for(const ch of m){ const c=ch.charCodeAt(0); b.push(c<256? c : CP[ch]); } try{ return new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(b)); }catch(e){ return m; } };
+      const K='[\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2013\u2014\u2018-\u201A\u201C-\u201E\u2020-\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]', RX=new RegExp('[\\u00C2-\\u00DF]'+K+'|[\\u00E2]'+K+K,'g');   // 2 bytes (Ã±) o 3 bytes (â€˜, triple codificacion)
+      const arreglar=s=>{ for(let i=0;i<4&&RX.test(s);i++){ RX.lastIndex=0; const t=s.replace(RX,dec); if(t===s) break; s=t; } RX.lastIndex=0; return s; };
+      for(const k in CART.v) CART.v[k]=CART.v[k].map(r=>r.map(x=>typeof x==='string'? arreglar(x) : x)); }
+    const arch=((await (await fetch(B+'archivos.json?t='+Date.now(),{cache:'no-store'})).json()).archivos||[]).filter(p=>/ventas-\d{4}-\d{2}-/.test(p)).sort();
+    const ult=arch[arch.length-1]; if(!ult) throw new Error('no hay archivos de ventas');
+    const st=ult.match(/-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}/); corte= st? `${st[3]}/${st[2]}/${st[1]} ${st[4]}:${st[5]}` : '';
+    const r=await fetch(RAW+ult.split('/').map(encodeURIComponent).join('/'),{cache:'no-store'});
+    cargar(new TextDecoder('windows-1252').decode(await r.arrayBuffer()));
+    const ym=(ult.match(/ventas-(\d{4})-(\d{2})-/)||[]); if(ym[1]) FILAS=FILAS.filter(x=>x.car.slice(6)===ym[1] && x.car.slice(3,5)===ym[2]);
+    const ymd=d=>d.slice(6)+d.slice(3,5)+d.slice(0,2);
+    const hoyI=new Date(Date.now()-3*3600e3).toISOString().slice(0,10), hoyD=hoyI.slice(8)+'-'+hoyI.slice(5,7)+'-'+hoyI.slice(0,4);
+    const dias=[...new Set([...FILAS.map(x=>x.car), hoyD])].sort((a,b)=>ymd(b).localeCompare(ymd(a)));
+    $('dia').innerHTML=dias.map(d=>{ const f=fDia(d); return `<option value="${d}">${DIAS[f.getDay()]} ${d.replace(/-/g,'/')}</option>`; }).join('');
+    $('vSel').innerHTML=VEND.map(c=>`<option value="${c}">${c} · ${esc(NOMV[c]||'Vendedor '+c)}</option>`).join('');
+    dibujar();
+  }catch(e){ $('fechaTxt').textContent='No se pudieron leer los datos: '+e.message; }
+})();
+</script>
+</body>
+</html>
