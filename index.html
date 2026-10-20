@@ -85,6 +85,19 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .vivo button{font:inherit;font-weight:700;color:#0055A4;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .pin.viejo{opacity:.5;filter:grayscale(.6)}
 .gpserr{color:var(--rojo);font-size:.86rem;flex:1 1 100%}
+/* rutas de la semana en el mapa: un color por vendedor */
+.rbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;font-size:.84rem;color:var(--ink2)}
+.rbar b{color:var(--ink)}
+.rdias{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.rdias button{font:inherit;font-size:.84rem;font-weight:700;color:var(--ink2);background:none;border:0;border-right:1px solid var(--line);padding:6px 11px;cursor:pointer}
+.rdias button:last-child{border-right:0}.rdias button[aria-pressed="true"]{background:#0055A4;color:#fff}
+.rbar select{padding:6px 10px;font-size:.84rem}
+.rbar label{display:inline-flex;align-items:center;gap:5px}.rbar label input{width:auto}
+.ley{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
+.ley button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:.78rem;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 6px;cursor:pointer}
+.ley button i{width:12px;height:12px;border-radius:50%}
+.ley button[aria-pressed="true"]{border-color:var(--ink);font-weight:700}
+.ley.filtro button[aria-pressed="false"]{opacity:.45}
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -120,7 +133,10 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
       </form>
       <div id="gpsVista" hidden>
         <div class="gpsbar"><span id="gpsInfo"></span><span><button type="button" id="gpsAct">Actualizar</button> <button type="button" id="gpsSalir">Cerrar mapa</button></span></div>
-        <div class="card"><div id="mapa"></div></div>
+        <div class="rbar"><b>Rutas</b><span class="rdias" id="rDias" role="group" aria-label="Día de la ruta"></span>
+          <select id="rVend" aria-label="Vendedor de la ruta"></select>
+          <label><input type="checkbox" id="rZona" checked> Zonas</label><span id="rInfo"></span></div>
+        <div class="card"><div id="mapa"></div><div class="ley" id="rLey"></div></div>
       </div>
       <h2>Ruta de hoy por vendedor</h2>
       <div class="card tbl"><table id="tVivo"></table></div>
@@ -144,7 +160,9 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 const B='https://1605-83.github.io/Reporte-Diario-Ventas/', RAW='https://raw.githubusercontent.com/1605-83/Reporte-Diario-Ventas/main/';
 // los 23 vendedores de calle (pedido de Bruno)
 const VEND=[2,4,5,6,7,24,26,27,28,29,30,51,52,53,54,56,61,62,63,64,73,74,75];
-const COLORES=['#2F6FDE','#1E9E63','#E2603A','#7B4FD6','#D4A017','#0E9AA7','#C2417A','#5B6B8C','#3B9D3B','#B85C1E','#2A7DE1','#8E44AD'];
+// un color distinto para cada uno de los 23 (en el mapa cada ruta se reconoce por su color)
+const COLORES=['#E6194B','#3CB44B','#4363D8','#F58231','#911EB4','#0E9AA7','#F032E6','#9A6324','#808000','#000075','#800000','#D4A017',
+  '#469990','#C2417A','#5B6B8C','#6B8E23','#FF6F61','#1E90FF','#8B4513','#20B2AA','#9932CC','#2F4F4F','#4B0082'];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const num=s=>{ s=String(s??'').trim(); return s? (parseFloat(s.replace(/\./g,'').replace(',','.'))||0) : 0; };
@@ -179,10 +197,23 @@ async function pedirGPS(ruta){
   if(!r.ok||!j.ok){ const e=new Error(j.error||('error '+r.status)); e.estado=r.status; throw e; }
   return j;
 }
+// GPS y Preventa se leen por separado: si el GPS falla, la venta en vivo de Preventa se sigue viendo (y al reves)
 async function cargarGPS(){
   const dia=$('dia').value; if(!dia||!gpsClave) return;
-  $('gpsErr').textContent='Conectando con Axum GPS…';
-  try{
+  $('gpsErr').textContent='Conectando con Axum…';
+  const [g,p]=await Promise.allSettled([leerGPS(dia),cargarPrev()]);
+  const e401=[g,p].find(x=>x.status==='rejected'&&x.reason.estado===401);
+  if(e401){ gpsClave=''; GPS=null; PREVD=null; guardaClave.sacar(); $('gpsForm').hidden=false; $('gpsVista').hidden=true; $('gpsErr').textContent='Clave incorrecta.'; dibujar(); return; }
+  if(g.status==='fulfilled'||PREVD){
+    guardaClave.poner(gpsClave,recordar);
+    $('gpsForm').hidden=true; $('gpsVista').hidden=false; $('gpsErr').textContent='';
+    cargarClientes();
+  } else $('gpsErr').textContent='No se pudo leer Axum: '+g.reason.message+(prevErr? ' · Preventa: '+prevErr : '');
+  dibujar(); pintarMapa();
+  if(g.status==='rejected'&&!$('gpsVista').hidden) $('gpsInfo').textContent='No se pudo actualizar Axum GPS: '+g.reason.message+' · la venta sigue en vivo desde Axum Preventa';
+}
+async function leerGPS(dia){
+  {
     const f=isoDia(dia);
     const [p,vi,jo]=await Promise.all([pedirGPS('/posiciones'),pedirGPS('/visitas?fecha='+f),pedirGPS('/jornada?fecha='+f)]);
     // lastPositions: un texto por vendedor "lat,lng,codigo,hora,..."
@@ -193,14 +224,6 @@ async function cargarGPS(){
       (vis[c]||(vis[c]=[])).push({cli:codigo(x.clientId),tiempo:String(x.tiempo||''),visito:/^s/i.test(String(x.visito||'')),hora:(String(x.horario||'').split(' ')[1]||'').slice(0,5)}); }
     const jor={}; for(const x of (jo.datos||[])) jor[codigo(x.sellerId)]={ini:horaISO(x.firstVisit),fin:horaISO(x.lastVisit)};
     GPS={pos,vis,jor,dia,hora:new Date()};
-    await cargarPrev();   // pedidos en vivo de Axum Preventa, con la misma clave
-    guardaClave.poner(gpsClave,recordar);
-    $('gpsForm').hidden=true; $('gpsVista').hidden=false; $('gpsErr').textContent='';
-    dibujar(); pintarMapa();
-  }catch(e){
-    if(e.estado===401){ gpsClave=''; GPS=null; guardaClave.sacar(); $('gpsForm').hidden=false; $('gpsVista').hidden=true; }
-    $('gpsErr').textContent= e.estado===401? 'Clave incorrecta.' : 'No se pudo leer Axum GPS: '+e.message;
-    if(!$('gpsVista').hidden) $('gpsInfo').textContent='No se pudo actualizar Axum GPS: '+e.message;
   }
 }
 // ---- Axum Preventa: pedidos en vivo (pantalla "Pedidos agrupados" de Axum) ----
@@ -209,28 +232,87 @@ async function cargarGPS(){
 let PREVD=null, prevErr='';
 const prevCache={};
 async function cargarPrev(){
-  const dia=$('dia').value; if(!dia||!gpsClave) return;
-  const f=encodeURIComponent(dia.replace(/-/g,'/')), q=`cmd=v5_Pedidos&fechaPedidoDesde=${f}&fechaPedidoHasta=${f}`;
+  const dia=$('dia').value; if(!dia) return;
+  // venta en vivo SIN clave (ruta publica /ventas del servicio): la MISMA consulta que hace Venta del dia, asi las dos dan igual
+  const f=encodeURIComponent(dia.replace(/-/g,'/')), q=`fechaPedidoDesde=${f}&fechaPedidoHasta=${f}`;
   try{
-    const [vs,ind]=await Promise.all([pedirGPS('/prev?webmethod=SelectVendedoresAgrupados&'+q), pedirGPS('/prev?webmethod=GetIndicadoresDeVentas&'+q)]);
+    const [vs,ind]=await Promise.all([pedirGPS('/ventas?webmethod=SelectVendedoresAgrupados&'+q), pedirGPS('/ventas?webmethod=GetIndicadoresDeVentas&'+q)]);
     const vend={}, pend=[];
     for(const v of ((vs.datos&&vs.datos.vendedores)||[])){ const c=codigo(v.vendedorId); if(!VEND.includes(+c)) continue;
       const ops=+v.operaciones||0, tot=+v.total||0, ant=prevCache[dia+'|'+c];
       vend[c]={total:tot,ops,cant:+v.cantClientes||0,clientes: ant&&ant.ops===ops&&ant.tot===tot? ant.clientes : null};
       if(!vend[c].clientes) pend.push(c); }
     for(let i=0;i<pend.length;i+=4) await Promise.all(pend.slice(i,i+4).map(async c=>{
-      const r=await pedirGPS(`/prev?webmethod=SelectClientesDeVendedor&vendedor=${c}&`+q).catch(()=>null), cl=new Map();
+      const r=await pedirGPS(`/ventas?webmethod=SelectClientesDeVendedor&vendedor=${c}&`+q).catch(()=>null), cl=new Map();
       for(const x of ((r&&Array.isArray(r.datos))? r.datos : [])) cl.set(codigo(x.clienteId),{total:+x.total||0,ops:+x.operaciones||0,rs:x.razonSocial||''});
       vend[c].clientes=cl; if(r) prevCache[dia+'|'+c]={ops:vend[c].ops,tot:vend[c].total,clientes:cl}; }));
     PREVD={dia,vend,ind:ind.datos||{},hora:new Date()}; prevErr='';
-  }catch(e){ PREVD=null; prevErr=e.message; }
+  }catch(e){ prevErr=e.message; }   // si falla se mantiene la ultima lectura
 }
+// ---- Rutas de la semana: los clientes de la cartera de cada dia (Gescom) ubicados con Axum GPS, un color por vendedor ----
+let CLIPOS=null, cliErr='', cliCargando=false, capaR=null, rDia='', rVend='', rAjustar=true;
+async function cargarClientes(){
+  if(CLIPOS||cliCargando||!gpsClave) return; cliCargando=true; cliErr='';
+  const m=new Map();
+  try{
+    for(let i=0;i<VEND.length;i+=6){   // en tandas: cada pedido al servicio lee pocos vendedores
+      const r=await pedirGPS('/clientes?vendedores='+VEND.slice(i,i+6).join(','));
+      for(const v in (r.datos||{})) for(const x of r.datos[v]) m.set(codigo(x.cli),x); }
+    CLIPOS=m; if(!m.size) cliErr='Axum GPS no devolvió ubicaciones de clientes';
+  }catch(e){ cliErr= e.estado===404? 'para ver las rutas falta actualizar el servicio en Cloudflare (worker.js)' : 'no se pudieron leer los clientes: '+e.message; }
+  cliCargando=false; rAjustar=true; pintarMapa();
+}
+// contorno de los puntos de una ruta (para ver la zona de cada vendedor)
+function contorno(p){
+  p=[...p].sort((a,b)=>a[1]-b[1]||a[0]-b[0]); if(p.length<3) return p;
+  const x=(o,a,b)=>(a[1]-o[1])*(b[0]-o[0])-(a[0]-o[0])*(b[1]-o[1]), lo=[], hi=[];
+  for(const q of p){ while(lo.length>1&&x(lo[lo.length-2],lo[lo.length-1],q)<=0) lo.pop(); lo.push(q); }
+  for(const q of [...p].reverse()){ while(hi.length>1&&x(hi[hi.length-2],hi[hi.length-1],q)<=0) hi.pop(); hi.push(q); }
+  return lo.slice(0,-1).concat(hi.slice(0,-1));
+}
+const NDIA={L:'lunes',M:'martes',X:'miércoles',J:'jueves',V:'viernes'};
+function pintarRutas(V,diaSel){
+  if(!capaR) return; capaR.clearLayers();
+  if(!rDia){ const l=LETRA[fDia(diaSel).getDay()]; rDia=NDIA[l]? l : 'L'; }
+  $('rDias').innerHTML=Object.keys(NDIA).map(l=>`<button type="button" data-rd="${l}" aria-pressed="${l===rDia}" title="Ruta del ${NDIA[l]}">${l==='X'?'Mi':NDIA[l][0].toUpperCase()+NDIA[l].slice(1,3)}</button>`).join('');
+  if($('rVend').options.length!==VEND.length+1) $('rVend').innerHTML='<option value="">Todos los vendedores</option>'+V.map(v=>`<option value="${v.c}">${v.c} · ${esc(v.n)}</option>`).join('');
+  $('rVend').value=rVend;
+  const hoy=LETRA[fDia(diaSel).getDay()]===rDia, todo=[], ley=[]; let sinUb=0, total=0;
+  for(const v of V){
+    const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>String(k[5]||'').includes(rDia));
+    const pts=[]; for(const k of cart){ const u=CLIPOS&&CLIPOS.get(codigo(k[0])); if(u) pts.push({k,u}); else sinUb++; }
+    total+=cart.length; if(cart.length) ley.push({v,n:cart.length});
+    if(rVend&&String(v.c)!==rVend) continue;
+    if($('rZona').checked&&pts.length>=3) L.polygon(contorno(pts.map(p=>[p.u.lat,p.u.lng])),{color:v.col,weight:1.5,opacity:.7,fillOpacity:.07,dashArray:'4 4',interactive:false}).addTo(capaR);
+    for(const {k,u} of pts){ const ped=hoy? v.comp.get(codigo(k[0])) : null;
+      // el dia que se esta mirando: lleno = con pedido, hueco = sin pedido todavia; otros dias, todos llenos
+      L.circleMarker([u.lat,u.lng],{radius:6,color:v.col,weight:2,fillColor:v.col,fillOpacity: !hoy||ped? .85 : .15})
+        .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}<br>Ruta del ${NDIA[rDia]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
+          (hoy? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
+      todo.push([u.lat,u.lng]); }
+  }
+  $('rLey').className='ley'+(rVend?' filtro':'');
+  $('rLey').innerHTML=ley.map(({v,n})=>`<button type="button" data-rv="${v.c}" aria-pressed="${String(v.c)===rVend}"><i style="background:${v.col}"></i>${v.c} · ${esc(v.n)} (${n})</button>`).join('')||'<span style="color:var(--ink2);font-size:.84rem">Nadie tiene ruta este día.</span>';
+  $('rInfo').textContent= cliCargando? 'Cargando ubicación de los clientes…' : cliErr? cliErr :
+    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · lleno = con pedido, hueco = sin pedido' : ''}`;
+  return todo;
+}
+document.addEventListener('click',e=>{
+  const d=e.target.closest('[data-rd]'); if(d){ rDia=d.dataset.rd; rAjustar=true; pintarMapa(); return; }
+  const v=e.target.closest('[data-rv]'); if(v){ rVend= rVend===v.dataset.rv? '' : v.dataset.rv; rAjustar=true; pintarMapa(); }
+});
+$('rVend').addEventListener('change',()=>{ rVend=$('rVend').value; rAjustar=true; pintarMapa(); });
+$('rZona').addEventListener('change',pintarMapa);
+
 function pintarMapa(){
-  if(!GPS||typeof L==='undefined'||$('gpsVista').hidden) return;
-  if(!mapa){ mapa=L.map('mapa',{scrollWheelZoom:false}); capa=L.layerGroup().addTo(mapa);
+  if(typeof L==='undefined'||$('gpsVista').hidden) return;
+  if(!mapa){ mapa=L.map('mapa',{scrollWheelZoom:false}); capaR=L.layerGroup().addTo(mapa); capa=L.layerGroup().addTo(mapa);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(mapa); }
-  capa.clearLayers(); const pts=[], ahora=minAhora();
-  for(const v of calcular($('dia').value)){ const p=v.g&&v.g.pos; if(!p) continue;
+  capa.clearLayers(); const pts=[], ahora=minAhora(), V=calcular($('dia').value);
+  const ruta=pintarRutas(V,$('dia').value)||[];
+  if(ruta.length&&rAjustar){ mapa.fitBounds(ruta,{padding:[30,30],maxZoom:15}); rAjustar=false; mapaAjustado=true; }
+  if(!GPS){ $('gpsInfo').textContent='Sin posiciones de Axum GPS en este momento'; setTimeout(()=>mapa.invalidateSize(),60); if(!ruta.length&&!mapaAjustado) mapa.setView([-34.75,-58.3],11); return; }
+  for(const v of V){ if(rVend&&String(v.c)!==rVend) continue; const p=v.g&&v.g.pos; if(!p) continue;
     const hace=p.min==null? null : ahora-p.min, viejo=hace==null||hace>15;
     const icono=L.divIcon({className:'',html:`<div class="pin${viejo?' viejo':''}" style="background:${v.col}">${esc(inic(v.n))}</div>`,iconSize:[30,30],iconAnchor:[15,15]});
     L.marker([p.lat,p.lng],{icon:icono,title:`${v.c} · ${v.n}`}).addTo(capa)
@@ -240,11 +322,11 @@ function pintarMapa(){
     pts.push([p.lat,p.lng]); }
   // codigos del GPS que no son de los 23 vendedores (otros equipos o un codigo distinto al de Gescom): en gris, con su codigo
   const otros=Object.keys(GPS.pos).filter(c=>!VEND.includes(+c));
-  for(const c of otros){ const p=GPS.pos[c];
+  if(!rVend) for(const c of otros){ const p=GPS.pos[c];
     L.marker([p.lat,p.lng],{icon:L.divIcon({className:'',html:`<div class="pin viejo" style="background:#8A94A6">${esc(c)}</div>`,iconSize:[30,30],iconAnchor:[15,15]}),title:'Código GPS '+c})
       .addTo(capa).bindPopup(`<b>Código GPS ${esc(c)}</b><br>No es de los 23 vendedores del panel<br>Última señal: ${esc(p.hora)}`); }
   if(pts.length && !mapaAjustado){ mapa.fitBounds(pts,{padding:[30,30],maxZoom:14}); mapaAjustado=true; }
-  if(!pts.length) mapa.setView([-34.75,-58.3],11);
+  if(!pts.length && !mapaAjustado) mapa.setView([-34.75,-58.3],11);
   setTimeout(()=>mapa.invalidateSize(),60);
   $('gpsInfo').textContent=`${pts.length} de ${VEND.length} vendedores en el mapa · posición actual · Axum GPS leído a las ${GPS.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} (se actualiza solo cada 5 minutos)${otros.length? ` · en gris, ${otros.length} códigos de GPS que no son de los 23 vendedores` : ''}`;
 }
@@ -320,10 +402,10 @@ function dibujar(){
   // todas las columnas se ordenan: el primer toque ordena de mayor a menor, el segundo de menor a mayor
   const th=(k,t,cls)=>`<th class="${cls||''}" data-k="${k}" title="Ordenar por ${t.toLowerCase()}">${t}${sortK===k? (sortD>0?' ▲':' ▼') : ' <span style="opacity:.35">⇅</span>'}</th>`;
   // En vivo: avance de la ruta (tocando un vendedor se ven sus clientes de ruta)
-  const gps=!!GPS, nc=gps? 9 : 6;
-  let h=`<thead><tr>${th('n','Vendedor','l')}${th('ruta','Ruta')}${gps? th('gv','Visitados GPS') : ''}${th('visit','Con pedido')}${th('p','Avance')}${th('fuera','Fuera de ruta')}${gps? th('ini','Inicio')+th('senal','Última señal') : ''}${th('est','Estado','l')}</tr></thead><tbody>`;
+  const gps=!!GPS, nc=gps? 10 : 7;
+  let h=`<thead><tr>${th('n','Vendedor','l')}${th('ruta','Ruta')}${gps? th('gv','Visitados GPS') : ''}${th('visit','Con pedido')}${th('p','Avance')}${th('fuera','Fuera de ruta')}${th('venta',enVivo? 'Vendido (en vivo)' : 'Vendido')}${gps? th('ini','Inicio')+th('senal','Última señal') : ''}${th('est','Estado','l')}</tr></thead><tbody>`;
   for(const v of L){ const [ec,et]=estado(v), ab=abiertos.has(v.c), p=v.g&&v.g.pos, hace=p&&p.min!=null? ahora-p.min : null;
-    h+=`<tr class="fila" data-v="${v.c}"><td class="l">${nombre(v)}</td><td>${v.ruta.length}</td>${gps? `<td>${v.gv} <span style="color:var(--ink2)">(${v.gT} en total)</span></td>` : ''}<td>${v.visit}</td><td>${prog(v.p)}</td><td>${v.fuera}</td>`+
+    h+=`<tr class="fila" data-v="${v.c}"><td class="l">${nombre(v)}</td><td>${v.ruta.length}</td>${gps? `<td>${v.gv} <span style="color:var(--ink2)">(${v.gT} en total)</span></td>` : ''}<td>${v.visit}</td><td>${prog(v.p)}</td><td>${v.fuera}</td><td><b>${fmt$(v.venta)}</b></td>`+
       `${gps? `<td>${esc(v.g.jor? v.g.jor.ini : '—')}</td><td>${p? `${esc(p.hora)}${hace!=null&&hace>=0? ` <span style="color:${hace>15?'var(--rojo)':'var(--verde)'}">(${hace} min)</span>` : ''}` : '<span style="color:var(--rojo)">Sin señal</span>'}</td>` : ''}<td class="l"><span class="est ${ec}">${et}</span></td></tr>`;
     if(ab) h+=`<tr class="det"><td colspan="${nc}">${clientes(v)}</td></tr>`; }
   $('tVivo').innerHTML=h+'</tbody>';
@@ -360,30 +442,34 @@ document.addEventListener('click',e=>{
   const tr=e.target.closest('#tVivo tr.fila'); if(tr){ const c=+tr.dataset.v; abiertos.has(c)? abiertos.delete(c) : abiertos.add(c); dibujar(); return; }
   const th=e.target.closest('th[data-k]'); if(th){ const k=th.dataset.k; if(sortK===k) sortD=-sortD; else { sortK=k; sortD=(k==='n'||k==='c')? 1 : -1; } dibujar(); }
 });
-$('dia').addEventListener('change',()=>{ dibujar(); if(gpsClave){ proxima=0; refrescar(); } }); $('vSel').addEventListener('change',dibujar);
+$('dia').addEventListener('change',()=>{ rDia=''; rAjustar=true; dibujar(); proxima=0; refrescar(); }); $('vSel').addEventListener('change',dibujar);
 $('gpsForm').addEventListener('submit',e=>{ e.preventDefault(); gpsClave=$('gpsClave').value.trim(); $('gpsClave').value=''; recordar=$('gpsRec').checked; if(gpsClave) refrescar(); });
 $('gpsAct').addEventListener('click',refrescar);
-$('gpsSalir').addEventListener('click',()=>{ GPS=null; PREVD=null; prevErr=''; gpsClave=''; guardaClave.sacar(); $('gpsVista').hidden=true; $('gpsForm').hidden=false; dibujar(); });
+$('gpsSalir').addEventListener('click',()=>{ GPS=null; PREVD=null; prevErr=''; gpsClave=''; CLIPOS=null; cliErr=''; guardaClave.sacar(); $('gpsVista').hidden=true; $('gpsForm').hidden=false; dibujar(); });
 // en vivo: se actualiza cada 5 minutos; arriba se ve cuando fue la ultima vez y cuanto falta para la proxima
-const CADA=5*60*1000;
-async function refrescar(){ if(actualizando||!gpsClave) return; actualizando=true; marcador(); try{ await cargarGPS(); } finally{ actualizando=false; proxima=Date.now()+CADA; marcador(); } }
+const CADA=5*60*1000, DESFASE=20e3;
+// los mismos minutos del reloj que Venta del dia (:00, :05, :10... y 20 segundos): las dos se actualizan juntas
+const proxMarca=()=>Math.floor((Date.now()-DESFASE)/CADA)*CADA+CADA+DESFASE;
+// la venta de Axum Preventa se lee siempre (sin clave); el GPS solo con la clave del panel
+async function refrescar(){ if(actualizando) return; actualizando=true; marcador();
+  try{ if(gpsClave) await cargarGPS(); else { await cargarPrev(); dibujar(); } } finally{ actualizando=false; proxima=proxMarca(); marcador(); } }
 function marcador(){
   const b=$('vivoBadge'); if(!b) return;
-  if(gpsClave && GPS){
+  if(GPS||PREVD){
     const falta=Math.max(0,proxima-Date.now()), m=Math.floor(falta/60000), s=Math.floor(falta%60000/1000);
     const h=(PREVD? PREVD.hora : GPS.hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
     b.className='vivo on'; b.innerHTML=`<span class="p"></span>${actualizando? 'Actualizando…' : `En vivo · actualizado ${h} · próxima en ${m}:${String(s).padStart(2,'0')}`}`;
   } else if(gpsClave){ b.className='vivo'; b.innerHTML='<span class="p"></span>Conectando en vivo…'; }
   else { b.className='vivo'; b.innerHTML=`<span class="p"></span>Datos de Gescom (07:00 y 13:30) · <button type="button" id="irVivo">ver en vivo</button>`; }
 }
-setInterval(()=>{ if(gpsClave && !document.hidden && proxima && Date.now()>=proxima) refrescar(); marcador(); }, 1000);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && gpsClave && proxima && Date.now()>=proxima) refrescar(); });
+setInterval(()=>{ if(!document.hidden && proxima && Date.now()>=proxima) refrescar(); marcador(); }, 1000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && proxima && Date.now()>=proxima) refrescar(); });
 document.addEventListener('click',e=>{ if(e.target.closest('#irVivo')){ verPanel('vivo'); $('gpsForm').scrollIntoView({behavior:'smooth',block:'center'}); $('gpsClave').focus(); } });
 
 (async function(){
   try{
     // en vivo de entrada: con la clave guardada arranca con el dia de hoy sin esperar el archivo de Gescom (que es pesado)
-    { const h=new Date(Date.now()-3*3600e3).toISOString().slice(0,10), d=h.slice(8)+'-'+h.slice(5,7)+'-'+h.slice(0,4); $('dia').innerHTML=`<option value="${d}">${DIAS[fDia(d).getDay()]} ${d.replace(/-/g,'/')}</option>`; marcador(); if(gpsClave) refrescar(); }
+    { const h=new Date(Date.now()-3*3600e3).toISOString().slice(0,10), d=h.slice(8)+'-'+h.slice(5,7)+'-'+h.slice(0,4); $('dia').innerHTML=`<option value="${d}">${DIAS[fDia(d).getDay()]} ${d.replace(/-/g,'/')}</option>`; marcador(); refrescar(); }
     const html=await (await fetch(B+'index.html?t='+Date.now(),{cache:'no-store'})).text();
     const m=html.match(/^const CFG = (.*);\s*$/m); if(m) JSON.parse(m[1]).vendedores.forEach(v=>NOMV[v.c]=v.n);
     try{ const r=await fetch(B+'carteras.json?t='+Date.now(),{cache:'no-store'}); if(r.ok) CART=await r.json(); }catch(e){}
@@ -406,7 +492,7 @@ document.addEventListener('click',e=>{ if(e.target.closest('#irVivo')){ verPanel
     if(elegido && dias.includes(elegido)) $('dia').value=elegido;
     $('vSel').innerHTML=VEND.map(c=>`<option value="${c}">${c} · ${esc(NOMV[c]||'Vendedor '+c)}</option>`).join('');
     dibujar();
-    if(gpsClave && !GPS) refrescar(); else dibujar();
+    if(gpsClave && !GPS) refrescar(); else { dibujar(); pintarMapa(); }
   }catch(e){ $('fechaTxt').textContent='No se pudieron leer los datos: '+e.message; }
 })();
 </script>
