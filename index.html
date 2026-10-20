@@ -7,20 +7,20 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#F4F6FA;--card:#fff;--ink:#141A26;--ink2:#6B7383;--line:#E4E8EF;--side:#0F1A33;--side2:#1A2747;--azul:#2F6FDE;--violeta:#4B3FB8;--verde:#1E9E63;--naranja:#F0A020;--rojo:#D23C3C}
+:root{--bg:#F4F6FA;--card:#fff;--ink:#141A26;--ink2:#6B7383;--line:#E4E8EF;--side:#0055A4;--side2:#1A6FC4;--azul:#2F6FDE;--violeta:#4B3FB8;--verde:#1E9E63;--naranja:#F0A020;--rojo:#D23C3C}
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#F4F6FA; } }
 :root[data-theme="dark"]{ --bg:#F4F6FA; }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-variant-numeric:tabular-nums;line-height:1.35}
 .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
 aside{background:var(--side);color:#fff;padding:18px 12px;position:sticky;top:0;height:100vh}
-.marca{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px}
-.logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#3B6FE0,#5B3FC8);display:flex;align-items:center;justify-content:center;font-weight:800}
-.marca b{display:block;font-size:1.05rem}.marca small{color:#AEB8D0;font-size:.78rem}
-aside button{display:flex;align-items:center;gap:12px;width:100%;font:inherit;font-size:.95rem;font-weight:600;color:#D9DFEC;background:none;border:0;border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;margin-bottom:4px}
+.marca{display:flex;align-items:center;gap:10px;padding:4px 8px 18px;border-bottom:1px solid rgba(255,255,255,.25);margin-bottom:14px}
+.logo{width:38px;height:38px;border-radius:10px;background:#fff;color:#0055A4;display:flex;align-items:center;justify-content:center;font-weight:800}
+.marca b{display:block;font-size:1.05rem}.marca small{color:#D6E6FA;font-size:.78rem}
+aside button{display:flex;align-items:center;gap:12px;width:100%;font:inherit;font-size:.95rem;font-weight:600;color:#EAF2FD;background:none;border:0;border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;margin-bottom:4px}
 aside button:hover{background:var(--side2)}aside button[aria-current="page"]{background:var(--side2);color:#fff}
 aside button i{font-style:normal;width:18px;text-align:center;opacity:.85}
-aside .pie{position:absolute;bottom:16px;left:12px;right:12px;font-size:.72rem;color:#8E99B5;padding:0 8px}
+aside .pie{position:absolute;bottom:16px;left:12px;right:12px;font-size:.72rem;color:#CFE0F7;padding:0 8px}
 main{padding:18px 24px 40px;min-width:0}
 .top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:18px}
 .top h1{margin:0;font-size:1.3rem;font-weight:800}.top .fecha{color:var(--ink2);font-size:.92rem;text-transform:capitalize}
