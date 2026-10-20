@@ -112,6 +112,15 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .rbar label{display:inline-flex;align-items:center;gap:5px}.rbar label input{width:auto}
 .zlab{background:rgba(255,255,255,.85);border:0;border-radius:6px;box-shadow:none;color:#141A26;font:800 .78rem/1 Inter,system-ui,sans-serif;padding:3px 6px}
 .zlab:before{display:none}
+/* vendedor transmitiendo: una personita caminando con su numero (pedido de Bruno, 20/10/2026); sin señal reciente, gris y quieta */
+.cam{position:relative;width:40px;height:44px;display:flex;align-items:flex-end;justify-content:center}
+.cam .fig{width:34px;height:34px;border-radius:50%;background:var(--c);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+.cam svg{width:22px;height:22px;fill:#fff;animation:pasos .9s ease-in-out infinite}
+.cam b{position:absolute;top:-6px;right:-10px;min-width:22px;padding:1px 5px;border-radius:999px;background:#141A26;color:#fff;font:800 .7rem/1.35 Inter,system-ui,sans-serif;text-align:center;border:2px solid #fff}
+.cam:after{content:"";position:absolute;bottom:-5px;left:50%;width:14px;height:4px;margin-left:-7px;border-radius:50%;background:rgba(0,0,0,.25)}
+.cam.viejo .fig{background:#8A94A6}.cam.viejo svg{animation:none}.cam.viejo b{background:#8A94A6}
+@keyframes pasos{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-3px) rotate(4deg)}}
+@media (prefers-reduced-motion:reduce){.cam svg{animation:none}}
 .ley{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
 .ley button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:.78rem;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 6px;cursor:pointer}
 .ley button i{width:12px;height:12px;border-radius:50%}
@@ -301,6 +310,70 @@ function contorno(p){
   for(const q of [...p].reverse()){ while(hi.length>1&&x(hi[hi.length-2],hi[hi.length-1],q)<=0) hi.pop(); hi.push(q); }
   return lo.slice(0,-1).concat(hi.slice(0,-1));
 }
+// ---- Zonas sin superponerse (pedido de Bruno, 20/10/2026): cada punto del mapa es del vendedor que tiene el cliente
+// mas cercano, hasta ZONA_KM de distancia. Asi las zonas no se pisan, el limite entre dos vendedores queda a mitad de
+// camino entre sus clientes y ningun cliente queda afuera de la zona de su vendedor (un cliente alejado queda en una
+// zona chica propia). Se calcula en una grilla fina y se dibuja el borde de cada zona, suavizado ----
+// La zona es el contorno de los clientes del vendedor (sin los muy alejados) con un margen de ZONA_MARGEN, mas un
+// circulo de ZONA_KM alrededor de cada cliente (asi el alejado tambien queda adentro); donde dos zonas se tocan,
+// cada punto va al vendedor del cliente mas cercano
+const ZONA_KM=0.3, ZONA_MARGEN=0.25, ZONA_MAX=1.5, zonaCache=new Map();
+function zonasDia(grupos){   // grupos: [{c, pts:[[lat,lng],...]}] -> {c: [[anillo, huecos...], ...]} (multipoligono de Leaflet)
+  const todos=grupos.flatMap((g,gi)=>g.pts.map(p=>[p[0],p[1],gi])); if(!todos.length) return {};
+  const clave=grupos.map(g=>g.c+':'+g.pts.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join(';')).join('|');
+  if(zonaCache.has(clave)) return zonaCache.get(clave);
+  const lat0=todos.reduce((a,p)=>a+p[0],0)/todos.length, kx=111.32*Math.cos(lat0*Math.PI/180), ky=110.57;
+  const P=todos.map(p=>[p[1]*kx, p[0]*ky, p[2]]);
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; for(const p of P){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+  const M=Math.max(ZONA_KM,ZONA_MARGEN); x0-=M; y0-=M; x1+=M; y1+=M;
+  const s=Math.max(0.04, Math.max(x1-x0,y1-y0)/900), nx=Math.ceil((x1-x0)/s)+1, ny=Math.ceil((y1-y0)/s)+1;
+  // contorno de cada vendedor en km (el mismo criterio de antes: sin los clientes muy alejados del resto)
+  const H=grupos.map((g,gi)=>{ const q=P.filter(p=>p[2]===gi).map(p=>[p[1]/ky,p[0]/kx]); const z=zonaVend(q).map(p=>[p[1]*kx,p[0]*ky]);
+    let a=[Infinity,Infinity,-Infinity,-Infinity]; for(const p of z){ a=[Math.min(a[0],p[0]),Math.min(a[1],p[1]),Math.max(a[2],p[0]),Math.max(a[3],p[1])]; } return {z,a}; });
+  const distCont=(x,y,h)=>{ const z=h.z; if(z.length<3 || x<h.a[0]-ZONA_MARGEN || x>h.a[2]+ZONA_MARGEN || y<h.a[1]-ZONA_MARGEN || y>h.a[3]+ZONA_MARGEN) return Infinity;
+    let c=false, d=Infinity;
+    for(let i=0,k=z.length-1;i<z.length;k=i++){ const A=z[i], Bq=z[k];
+      if((A[1]>y)!==(Bq[1]>y) && x<(Bq[0]-A[0])*(y-A[1])/(Bq[1]-A[1])+A[0]) c=!c;
+      const dx=Bq[0]-A[0], dy=Bq[1]-A[1], L2=dx*dx+dy*dy, t=L2? Math.max(0,Math.min(1,((x-A[0])*dx+(y-A[1])*dy)/L2)) : 0;
+      d=Math.min(d,Math.hypot(x-A[0]-t*dx, y-A[1]-t*dy)); }
+    return c? 0 : d; };
+  // clientes en baldes de ZONA_MAX para buscar el mas cercano rapido
+  const RB=ZONA_MAX, B=new Map(), bk=(i,j)=>i+'_'+j; for(const p of P){ const k=bk(Math.floor((p[0]-x0)/RB),Math.floor((p[1]-y0)/RB)); (B.get(k)||B.set(k,[]).get(k)).push(p); }
+  const due=new Int16Array(nx*ny).fill(-1), R2=RB*RB, C2=ZONA_KM*ZONA_KM;
+  for(let j=0;j<ny;j++){ const y=y0+(j+.5)*s, bj=Math.floor((y-y0)/RB);
+    for(let i=0;i<nx;i++){ const x=x0+(i+.5)*s, bi=Math.floor((x-x0)/RB); let mejor=R2, g=-1;
+      for(let a=-1;a<=1;a++) for(let b=-1;b<=1;b++){ const l=B.get(bk(bi+a,bj+b)); if(l) for(const p of l){ const d=(p[0]-x)*(p[0]-x)+(p[1]-y)*(p[1]-y); if(d<mejor){ mejor=d; g=p[2]; } } }
+      // el punto es del vendedor mas cercano si esta cerca de un cliente suyo o dentro (o al margen) de su contorno
+      due[j*nx+i]= g>=0 && (mejor<=C2 || distCont(x,y,H[g])<=ZONA_MARGEN)? g : -1; } }
+  const de=(i,j)=> i<0||j<0||i>=nx||j>=ny? -1 : due[j*nx+i];
+  const aLL=([gx,gy])=>[(y0+gy*s)/ky, (x0+gx*s)/kx];
+  const area=r=>{ let a=0; for(let i=0;i<r.length;i++){ const p=r[i], q=r[(i+1)%r.length]; a+=p[0]*q[1]-q[0]*p[1]; } return a/2; };
+  const dentro=(pt,r)=>{ let c=false; for(let i=0,k=r.length-1;i<r.length;k=i++){ const a=r[i], b=r[k]; if((a[1]>pt[1])!==(b[1]>pt[1]) && pt[0]<(b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1])+a[0]) c=!c; } return c; };
+  // Chaikin: redondea las esquinas de la grilla
+  const suave=r=>{ for(let n=0;n<2;n++){ const o=[]; for(let i=0;i<r.length;i++){ const p=r[i], q=r[(i+1)%r.length]; o.push([.75*p[0]+.25*q[0],.75*p[1]+.25*q[1]],[.25*p[0]+.75*q[0],.25*p[1]+.75*q[1]]); } r=o; } return r; };
+  const out={};
+  grupos.forEach((g,gi)=>{
+    // bordes de las celdas del vendedor que dan a otra zona o al vacio, con la zona a la izquierda
+    const sig=new Map(), K=(i,j)=>i+','+j;
+    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ if(due[j*nx+i]!==gi) continue;
+      if(de(i,j-1)!==gi) (sig.get(K(i,j))||sig.set(K(i,j),[]).get(K(i,j))).push([i+1,j]);
+      if(de(i+1,j)!==gi) (sig.get(K(i+1,j))||sig.set(K(i+1,j),[]).get(K(i+1,j))).push([i+1,j+1]);
+      if(de(i,j+1)!==gi) (sig.get(K(i+1,j+1))||sig.set(K(i+1,j+1),[]).get(K(i+1,j+1))).push([i,j+1]);
+      if(de(i-1,j)!==gi) (sig.get(K(i,j+1))||sig.set(K(i,j+1),[]).get(K(i,j+1))).push([i,j]); }
+    const anillos=[];
+    for(const [k0,l0] of sig){ while(l0.length){ const r=[k0.split(',').map(Number)]; let p=l0.pop();
+      for(let n=0;n<1e6;n++){ const k=K(p[0],p[1]); if(k===k0) break; r.push(p); const l=sig.get(k); if(!l||!l.length) break; p=l.pop(); }
+      // saca los puntos intermedios de los tramos rectos
+      const c=r.filter((q,i)=>{ const a=r[(i-1+r.length)%r.length], b=r[(i+1)%r.length]; return (q[0]-a[0])*(b[1]-q[1])!==(q[1]-a[1])*(b[0]-q[0]); });
+      if(c.length>=3) anillos.push(c); } }
+    // exteriores y huecos (orientacion contraria); cada hueco va con el exterior que lo contiene
+    const ext=anillos.filter(r=>area(r)>0), hue=anillos.filter(r=>area(r)<0);
+    const poli=ext.map(r=>[r]); for(const h of hue){ const e=poli.find(pl=>dentro(h[0],pl[0])); if(e) e.push(h); }
+    out[g.c]={poli:poli.map(pl=>pl.map(r=>suave(r).map(aLL))), mayor: ext.length? aLL(ext.reduce((m,r)=>area(r)>area(m)? r : m).reduce((a,p,_,arr)=>[a[0]+p[0]/arr.length,a[1]+p[1]/arr.length],[0,0])) : null};
+  });
+  zonaCache.set(clave,out); if(zonaCache.size>12) zonaCache.delete(zonaCache.keys().next().value);
+  return out;
+}
 const NDIA={L:'lunes',M:'martes',X:'miércoles',J:'jueves',V:'viernes'};
 function pintarRutas(V,diaSel){
   if(!capaR) return; capaR.clearLayers();
@@ -309,14 +382,21 @@ function pintarRutas(V,diaSel){
   if($('rVend').options.length!==VEND.length+1) $('rVend').innerHTML='<option value="">Todos los vendedores</option>'+V.map(v=>`<option value="${v.c}">${v.c} · ${esc(v.n)}</option>`).join('');
   $('rVend').value=rVend;
   const hoy=LETRA[fDia(diaSel).getDay()]===rDia, todo=[], ley=[]; let sinUb=0, total=0;
-  for(const v of V){
-    const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>String(k[5]||'').includes(rDia));
+  // clientes ubicados de cada vendedor en la ruta del dia; las zonas se arman con todos (asi el limite respeta a los vecinos
+  // aunque se mire un solo vendedor)
+  const ptsV=new Map();
+  for(const v of V){ const cart=((CART&&CART.v&&CART.v[String(v.c)])||[]).filter(k=>String(k[5]||'').includes(rDia));
     const pts=[]; for(const k of cart){ const u=CLIPOS&&CLIPOS.get(codigo(k[0])); if(u) pts.push({k,u}); else sinUb++; }
-    total+=cart.length; if(cart.length) ley.push({v,n:cart.length});
+    total+=cart.length; if(cart.length) ley.push({v,n:cart.length}); ptsV.set(v.c,pts); }
+  const Z= $('rZona').checked? zonasDia(V.map(v=>({c:v.c, pts:ptsV.get(v.c).map(p=>[p.u.lat,p.u.lng])})).filter(g=>g.pts.length)) : {};
+  for(const v of V){
+    const pts=ptsV.get(v.c);
     if(rVend&&String(v.c)!==rVend) continue;
-    if($('rZona').checked&&pts.length>=3){ const z=zonaVend(pts.map(p=>[p.u.lat,p.u.lng]));
-      if(z.length>=3){ L.polygon(z,{color:v.col,weight:2.5,opacity:.95,fillColor:v.col,fillOpacity:.12,interactive:false}).addTo(capaR);
-        const c=z.reduce((a,p)=>[a[0]+p[0]/z.length,a[1]+p[1]/z.length],[0,0]);
+    const z=Z[v.c];
+    if(z&&z.poli.length){ L.polygon(z.poli,{color:v.col,weight:2.5,opacity:.95,fillColor:v.col,fillOpacity:.12,interactive:false}).addTo(capaR);
+      // el numero de la zona solo se ve con ese vendedor tildado (pedido de Bruno: sin tildar, el mapa sin numeros);
+      // va sobre el cliente mas cercano al centro de su zona mas grande (siempre cae adentro)
+      if(rVend){ const m=z.mayor, c=pts.reduce((b,p)=>{ const d=(p.u.lat-m[0])**2+(p.u.lng-m[1])**2; return d<b.d? {d,ll:[p.u.lat,p.u.lng]} : b; },{d:Infinity,ll:m}).ll;
         L.tooltip({permanent:true,direction:'center',className:'zlab',interactive:false}).setLatLng(c).setContent(String(v.c)).addTo(capaR); } }
     for(const {k,u} of pts){ const ped=hoy? v.comp.get(codigo(k[0])) : null;
       // cada cliente es un punto lleno del color del vendedor; el dia que se esta mirando, borde negro = con pedido
@@ -327,7 +407,7 @@ function pintarRutas(V,diaSel){
   }
   listaVend(V);   // la lista de vendedores va en la barra azul con los 23 (ver listaVend)
   $('rInfo').textContent= cliCargando? 'Cargando ubicación de los clientes…' : cliErr? cliErr :
-    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · borde negro = con pedido' : ''}${$('rZona').checked? ' · la zona de cada vendedor marca dónde están sus clientes (sin los muy alejados)' : ''}`;
+    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · borde negro = con pedido' : ''}${$('rZona').checked? ' · cada zona es lo más cerca de los clientes de ese vendedor que de los de otro (no se superponen y ningún cliente queda afuera)' : ''}`;
   return todo;
 }
 document.addEventListener('click',e=>{
@@ -355,7 +435,7 @@ function pintarMapa(){
   if(!GPS){ $('gpsInfo').textContent='Sin posiciones de Axum GPS en este momento'; setTimeout(()=>mapa.invalidateSize(),60); if(!ruta.length&&!mapaAjustado) mapa.setView([-34.75,-58.3],11); return; }
   for(const v of V){ if(rVend&&String(v.c)!==rVend) continue; const p=v.g&&v.g.pos; if(!p) continue;
     const hace=p.min==null? null : ahora-p.min, viejo=hace==null||hace>15;
-    const icono=L.divIcon({className:'',html:`<div class="pin${viejo?' viejo':''}" style="background:${v.col}">${esc(inic(v.n))}</div>`,iconSize:[30,30],iconAnchor:[15,15]});
+    const icono=L.divIcon({className:'',html:`<div class="cam${viejo?' viejo':''}" style="--c:${v.col}" title="${viejo? 'Sin señal reciente' : 'Transmitiendo'}"><span class="fig"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg></span><b>${v.c}</b></div>`,iconSize:[40,44],iconAnchor:[20,42],popupAnchor:[0,-38]});
     L.marker([p.lat,p.lng],{icon:icono,title:`${v.c} · ${v.n}`}).addTo(capa)
       .bindPopup(`<b>${v.c} · ${esc(v.n)}</b><br>Última señal: ${esc(p.hora)}${hace!=null&&hace>=0? ` (hace ${hace} min)` : ''}<br>`+
         `Visitados (GPS): ${v.gT} · de la ruta: ${v.gv} de ${v.ruta.length}<br>Con pedido: ${v.visit} · Vendido: ${fmt$(v.venta)}`+
