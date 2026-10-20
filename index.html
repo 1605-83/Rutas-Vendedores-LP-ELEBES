@@ -110,6 +110,8 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .rdias button:last-child{border-right:0}.rdias button[aria-pressed="true"]{background:#0055A4;color:#fff}
 .rbar select{padding:6px 10px;font-size:.84rem}
 .rbar label{display:inline-flex;align-items:center;gap:5px}.rbar label input{width:auto}
+.zlab{background:rgba(255,255,255,.85);border:0;border-radius:6px;box-shadow:none;color:#141A26;font:800 .78rem/1 Inter,system-ui,sans-serif;padding:3px 6px}
+.zlab:before{display:none}
 .ley{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--line)}
 .ley button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:.78rem;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 6px;cursor:pointer}
 .ley button i{width:12px;height:12px;border-radius:50%}
@@ -283,6 +285,15 @@ async function cargarClientes(){
   cliCargando=false; rAjustar=true; pintarMapa();
 }
 // contorno de los puntos de una ruta (para ver la zona de cada vendedor)
+// zona del vendedor: contorno de sus clientes sin los que quedan muy lejos del resto (un cliente suelto estiraba la zona
+// a lo largo del mapa). Se deja afuera a quien esta a mas de 3 veces la distancia tipica al centro, con un minimo de 1,5 km
+function zonaVend(p){
+  if(p.length<4) return contorno(p);
+  const med=a=>{ const s=[...a].sort((x,y)=>x-y), m=s.length>>1; return s.length%2? s[m] : (s[m-1]+s[m])/2; };
+  const c=[med(p.map(q=>q[0])),med(p.map(q=>q[1]))], kx=111.32*Math.cos(c[0]*Math.PI/180);
+  const d=p.map(q=>Math.hypot((q[0]-c[0])*110.57,(q[1]-c[1])*kx)), lim=Math.max(1.5,3*med(d));
+  const cerca=p.filter((q,i)=>d[i]<=lim); return contorno(cerca.length>=3? cerca : p);
+}
 function contorno(p){
   p=[...p].sort((a,b)=>a[1]-b[1]||a[0]-b[0]); if(p.length<3) return p;
   const x=(o,a,b)=>(a[1]-o[1])*(b[0]-o[0])-(a[0]-o[0])*(b[1]-o[1]), lo=[], hi=[];
@@ -303,17 +314,20 @@ function pintarRutas(V,diaSel){
     const pts=[]; for(const k of cart){ const u=CLIPOS&&CLIPOS.get(codigo(k[0])); if(u) pts.push({k,u}); else sinUb++; }
     total+=cart.length; if(cart.length) ley.push({v,n:cart.length});
     if(rVend&&String(v.c)!==rVend) continue;
-    if($('rZona').checked&&pts.length>=3) L.polygon(contorno(pts.map(p=>[p.u.lat,p.u.lng])),{color:v.col,weight:1.5,opacity:.7,fillOpacity:.07,dashArray:'4 4',interactive:false}).addTo(capaR);
+    if($('rZona').checked&&pts.length>=3){ const z=zonaVend(pts.map(p=>[p.u.lat,p.u.lng]));
+      if(z.length>=3){ L.polygon(z,{color:v.col,weight:2.5,opacity:.95,fillColor:v.col,fillOpacity:.12,interactive:false}).addTo(capaR);
+        const c=z.reduce((a,p)=>[a[0]+p[0]/z.length,a[1]+p[1]/z.length],[0,0]);
+        L.tooltip({permanent:true,direction:'center',className:'zlab',interactive:false}).setLatLng(c).setContent(String(v.c)).addTo(capaR); } }
     for(const {k,u} of pts){ const ped=hoy? v.comp.get(codigo(k[0])) : null;
-      // el dia que se esta mirando: lleno = con pedido, hueco = sin pedido todavia; otros dias, todos llenos
-      L.circleMarker([u.lat,u.lng],{radius:6,color:v.col,weight:2,fillColor:v.col,fillOpacity: !hoy||ped? .85 : .15})
+      // cada cliente es un punto lleno del color del vendedor; el dia que se esta mirando, borde negro = con pedido
+      L.circleMarker([u.lat,u.lng],{radius:5,color: hoy&&ped? '#111' : '#fff',weight: hoy&&ped? 2 : 1,fillColor:v.col,fillOpacity:.95})
         .bindPopup(`<b>${esc(k[0])} · ${esc(titulo(k[1]))}</b><br>${esc(titulo(k[2]||''))}${k[3]? ', '+esc(titulo(k[3])) : ''}<br>Ruta del ${NDIA[rDia]}: <b style="color:${v.col}">${v.c} · ${esc(v.n)}</b>`+
           (hoy? `<br>${ped? 'Con pedido: '+fmt$(ped.imp) : 'Sin pedido todavía'}` : '')).addTo(capaR);
       todo.push([u.lat,u.lng]); }
   }
   listaVend(V);   // la lista de vendedores va en la barra azul con los 23 (ver listaVend)
   $('rInfo').textContent= cliCargando? 'Cargando ubicación de los clientes…' : cliErr? cliErr :
-    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · lleno = con pedido, hueco = sin pedido' : ''}`;
+    `${fmtN(todo.length)} clientes en el mapa${sinUb? ` · ${fmtN(sinUb)} de ${fmtN(total)} sin ubicación en Axum` : ''}${hoy? ' · borde negro = con pedido' : ''}${$('rZona').checked? ' · la zona de cada vendedor marca dónde están sus clientes (sin los muy alejados)' : ''}`;
   return todo;
 }
 document.addEventListener('click',e=>{
