@@ -56,7 +56,10 @@ const cookiesDe = (resp) => {
 async function entrar(env) {
   if (sesion && sesion.hasta > Date.now()) return sesion.cookie;
   if (!env.AXUM_GPS_USUARIO || !env.AXUM_GPS_CLAVE) throw new Error('Faltan los secretos AXUM_GPS_USUARIO y AXUM_GPS_CLAVE');
-  const r1 = await fetch(AXUM + '/Login.aspx', { redirect: 'manual' });
+  // se presenta como un navegador comun: algunos sistemas viejos rechazan pedidos sin estos encabezados
+  const NAV = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'es-AR,es;q=0.9' };
+  const r1 = await fetch(AXUM + '/Login.aspx', { redirect: 'manual', headers: NAV });
   const html = await r1.text();
   const c1 = cookiesDe(r1);
   const form = new URLSearchParams();
@@ -68,7 +71,7 @@ async function entrar(env) {
   form.set('Button1', campo(html, 'Button1') || 'Ingresar');
   const r2 = await fetch(AXUM + '/Login.aspx', {
     method: 'POST', redirect: 'manual', body: form.toString(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': c1 },
+    headers: { ...NAV, 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': c1, 'Origin': AXUM, 'Referer': AXUM + '/Login.aspx' },
   });
   const c2 = cookiesDe(r2);
   const cookie = [c1, c2].filter(Boolean).join('; ');
@@ -82,7 +85,10 @@ async function entrar(env) {
     const nombres = c2.split('; ').map(c => c.split('=')[0]).filter(Boolean).join(',') || 'ninguna';
     const txt = html2.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
     const msj = (txt.match(/[^.]{0,80}(incorrect|inv[aá]lid|error|bloquead|no existe|vencid)[^.]{0,80}/i) || [''])[0].trim();
-    throw new Error(`Axum GPS no acepto el ingreso (respuesta ${r2.status}${destino ? ', va a ' + destino : ''}, cookies: ${nombres}${msj ? ', mensaje: ' + msj : ''})`);
+    const alerta = ((html2.match(/alert\(\s*['"]([^'"]{1,160})['"]/i) || [])[1] || '').trim();   // mensajes que Axum muestra con un cartel
+    const pagina = txt.trim().slice(0, 220);   // texto visible de la pantalla de ingreso (no tiene datos de nadie)
+    throw new Error(`Axum GPS no acepto el ingreso (respuesta ${r2.status}${destino ? ', va a ' + destino : ''}, cookies: ${nombres}` +
+      `${msj ? ', mensaje: ' + msj : ''}${alerta ? ', cartel: ' + alerta : ''}, viewstate: ${form.get('__VIEWSTATE') ? 'si' : 'NO'}, pantalla: ${pagina})`);
   }
   sesion = { cookie, hasta: Date.now() + SESION_SEG * 1000 };
   return cookie;
