@@ -99,16 +99,44 @@ async function llamar(env, funcion, params = {}) {
   for (let intento = 0; intento < 2; intento++) {
     const cookie = await entrar(env);
     const r = await fetch(AXUM + '/LocationService.asmx/' + funcion, {
-      method: 'POST', redirect: 'manual', body: JSON.stringify(params),
+      // todas las funciones piden el usuario de Axum como primer dato (userName)
+      method: 'POST', redirect: 'manual', body: JSON.stringify({ userName: env.AXUM_GPS_USUARIO, ...params }),
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cookie': cookie },
     });
     if (r.status === 302 || r.status === 401) { sesion = null; continue; }   // sesion vencida: entra de nuevo una vez
     const txt = await r.text();
     if (!r.ok) throw new Error(`Axum respondio ${r.status} en ${funcion}: ${txt.slice(0, 200)}`);
     const j = JSON.parse(txt);
-    return j && 'd' in j ? j.d : j;   // los .asmx devuelven {d: ...}
+    let d = j && 'd' in j ? j.d : j;   // los .asmx devuelven {d: ...}
+    if (typeof d === 'string' && /^\s*[\[{]/.test(d)) { try { d = JSON.parse(d); } catch (e) {} }   // a veces el JSON viene como texto
+    return d;
   }
   throw new Error('No se pudo mantener la sesion de Axum GPS');
+}
+
+// funciones con fecha (aDate): Axum no documenta el formato; se prueban los habituales y se recuerda el que anda
+const FORMATOS = [f => f.split('-').reverse().join('/'), f => f, f => { const [y, m, d] = f.split('-'); return `${m}/${d}/${y}`; }, f => f.replace(/-/g, '')];
+let formatoOk = null;
+async function conFecha(env, funcion, fecha, extra = {}) {
+  const orden = formatoOk == null ? FORMATOS.map((_, i) => i) : [formatoOk, ...FORMATOS.map((_, i) => i).filter(i => i !== formatoOk)];
+  let ultimo = null;
+  for (const i of orden) {
+    try {
+      const d = await llamar(env, funcion, { aDate: FORMATOS[i](fecha), ...extra });
+      if (d != null && !(typeof d === 'string' && /error|invalid|formato/i.test(d))) { formatoOk = i; return d; }
+    } catch (e) { ultimo = e; }
+  }
+  if (ultimo) throw ultimo;
+  return null;
+}
+
+// forma de los datos sin los datos: nombres de campos y valores enmascarados (digitos = 9, letras = x)
+function forma(d) {
+  const mascara = v => v == null ? null : typeof v === 'number' ? 'numero' : typeof v === 'boolean' ? 'si/no'
+    : String(v).slice(0, 40).replace(/[0-9]/g, '9').replace(/[A-Za-zÁÉÍÓÚÑáéíóúñ]/g, 'x');
+  const uno = x => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, Array.isArray(v) ? `lista(${v.length})` : typeof v === 'object' && v ? uno(v) : mascara(v)])) : mascara(x);
+  if (Array.isArray(d)) return { tipo: 'lista', cantidad: d.length, ejemplo: d.length ? (Array.isArray(d[0]) ? d[0].map(mascara) : uno(d[0])) : null };
+  return { tipo: typeof d, ejemplo: uno(d) };
 }
 
 // lo pedido hace menos de CACHE_SEG se toma de la cache de Cloudflare
@@ -144,12 +172,21 @@ export default {
         }
         return json(req, { ok: r.ok, estado: r.status, cantidad: Object.keys(ops).length, funciones: ops });
       }
+      if (ruta === '/estructura') {
+        // solo la forma de cada respuesta (sin posiciones, nombres ni codigos reales) para armar el panel
+        const f = hoyAR(), out = {};
+        for (const [n, fn] of [['lastPositions', () => llamar(env, 'lastPositions')], ['pasoPoprPDVAt', () => conFecha(env, 'pasoPoprPDVAt', f)],
+                               ['primerUltimaVisitaAt', () => conFecha(env, 'primerUltimaVisitaAt', f)], ['vendedoresId', () => llamar(env, 'vendedoresId', { username: env.AXUM_GPS_USUARIO })]]) {
+          try { out[n] = forma(await fn()); } catch (e) { out[n] = { error: String(e.message || e).slice(0, 300) }; }
+        }
+        return json(req, { ok: true, fecha: f, formatoFecha: formatoOk, estructura: out });
+      }
       // de aca en adelante hay datos de personas: piden la clave del panel
       if (!env.PANEL_CLAVE || !igual(req.headers.get('X-Clave'), env.PANEL_CLAVE)) return json(req, { ok: false, error: 'Clave del panel incorrecta' }, 401);
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('fecha') || '') ? url.searchParams.get('fecha') : hoyAR();
       if (ruta === '/posiciones') return json(req, { ok: true, datos: await conCache('posiciones', () => llamar(env, 'lastPositions', {})) });
-      if (ruta === '/visitas') return json(req, { ok: true, fecha, datos: await conCache('visitas-' + fecha, () => llamar(env, 'pasoPoprPDVAt', { fecha })) });
-      if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => llamar(env, 'primerUltimaVisitaAt', { fecha })) });
+      if (ruta === '/visitas') return json(req, { ok: true, fecha, datos: await conCache('visitas-' + fecha, () => conFecha(env, 'pasoPoprPDVAt', fecha)) });
+      if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);
     } catch (e) {
       return json(req, { ok: false, error: String(e.message || e) }, 502);
