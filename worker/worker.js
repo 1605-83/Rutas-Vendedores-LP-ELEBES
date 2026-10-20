@@ -72,8 +72,18 @@ async function entrar(env) {
   });
   const c2 = cookiesDe(r2);
   const cookie = [c1, c2].filter(Boolean).join('; ');
-  // si entro bien, Axum redirige (302) y entrega la cookie de autenticacion
-  if (r2.status !== 302 && !/ASPXAUTH|\.AUTH|auth/i.test(c2)) throw new Error('Axum GPS no acepto el ingreso (revisar usuario y clave)');
+  // si entro bien, Axum redirige fuera del login (o deja de mostrar el formulario) y entrega la cookie de autenticacion
+  const destino = r2.headers.get('Location') || '';
+  const html2 = r2.status === 200 ? await r2.text() : '';
+  const fuera = destino && !/login\.aspx/i.test(destino);
+  const sinForm = r2.status === 200 && html2 && !/id="Password"/i.test(html2);
+  if (!fuera && !sinForm && !/ASPXAUTH|\.AUTH/i.test(c2)) {
+    // diagnostico sin datos sensibles: estado, a donde redirige, nombres de cookies y el mensaje que muestra la pagina
+    const nombres = c2.split('; ').map(c => c.split('=')[0]).filter(Boolean).join(',') || 'ninguna';
+    const txt = html2.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
+    const msj = (txt.match(/[^.]{0,80}(incorrect|inv[aá]lid|error|bloquead|no existe|vencid)[^.]{0,80}/i) || [''])[0].trim();
+    throw new Error(`Axum GPS no acepto el ingreso (respuesta ${r2.status}${destino ? ', va a ' + destino : ''}, cookies: ${nombres}${msj ? ', mensaje: ' + msj : ''})`);
+  }
   sesion = { cookie, hasta: Date.now() + SESION_SEG * 1000 };
   return cookie;
 }
