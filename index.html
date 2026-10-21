@@ -108,6 +108,14 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .ac li b{color:var(--ink)}
 @media (max-width:1100px){.r2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:600px){.cum{grid-template-columns:minmax(0,1fr) 80px 56px;gap:10px}.gh span{white-space:normal;text-align:right}}
+/* contraseña para entrar (pedido de Bruno, 20/10/2026) */
+#acceso{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;background:linear-gradient(160deg,#0055A4,#0A3D7A)}
+#acceso form{width:min(100%,380px);background:#fff;border-radius:16px;padding:26px 24px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+#acceso h1{margin:0 0 4px;font-size:1.2rem;font-weight:800}#acceso p{margin:0 0 18px;color:var(--ink2);font-size:.88rem}
+#acceso label{display:block;font-weight:700;font-size:.85rem;margin-bottom:6px}
+#acceso .fila{display:flex;gap:8px}#acceso input{flex:1;min-width:0}
+#acceso button{font:inherit;font-weight:700;color:#fff;background:#0055A4;border:0;border-radius:10px;padding:9px 16px;cursor:pointer}
+#acceso .err{color:var(--rojo);font-size:.85rem;min-height:1.2em;margin-top:8px}
 [hidden]{display:none!important}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
@@ -171,6 +179,23 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
+<div id="acceso"><form id="accForm"><h1>Rutas de vendedores</h1><p>LP - ELEBES · ingresá la contraseña para ver el panel</p>
+  <label for="accClave">Contraseña</label><div class="fila"><input id="accClave" type="password" inputmode="numeric" autocomplete="current-password" required><button type="submit">Ingresar</button></div>
+  <div class="err" id="accErr" role="alert"></div></form></div>
+<script>
+// Contraseña del panel: se compara el hash SHA-256 (la clave no esta escrita en la pagina) y se recuerda en este navegador
+(function(){
+  const HASH='5909daa6fb5cf239d52027367f111ecd9c280866d73f8bd47cda43ef5495af6a', KEY='rutas-acceso', g=id=>document.getElementById(id);
+  const abrir=()=>{ g('acceso').remove(); window.dispatchEvent(new Event('resize')); };
+  const sha=async t=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  try{ if(localStorage.getItem(KEY)===HASH){ abrir(); return; } }catch(e){}
+  g('accClave').focus();
+  g('accForm').addEventListener('submit',async e=>{ e.preventDefault();
+    if(await sha(g('accClave').value.trim())===HASH){ try{ localStorage.setItem(KEY,HASH); }catch(err){} abrir(); }
+    else { g('accErr').textContent='Contraseña incorrecta'; g('accClave').select(); } });
+})();
+</script>
+
 <div class="app">
   <aside>
     <div class="marca"><span class="logo">◎</span><div><b>Rutas</b><small>Fuerza de venta</small></div></div>
