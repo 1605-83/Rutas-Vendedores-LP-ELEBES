@@ -106,6 +106,15 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 .ac ul{list-style:none;margin:0;padding:10px 18px 14px}.ac li{position:relative;padding:6px 0 6px 22px;font-size:.88rem;color:var(--ink2)}
 .ac li::before{content:'';position:absolute;left:2px;top:12px;width:9px;height:9px;border-radius:50%;background:var(--d)}
 .ac li b{color:var(--ink)}
+.ac details.sv{border-top:1px solid var(--line)}
+.ac details.sv summary{cursor:pointer;padding:12px 18px;font-weight:700;font-size:.88rem;color:var(--ink);list-style:none;display:flex;align-items:center;gap:8px}
+.ac details.sv summary::-webkit-details-marker{display:none}
+.ac details.sv summary::before{content:'›';display:inline-block;transition:transform .15s;color:var(--ink2);font-size:1.1rem}
+.ac details.sv[open] summary::before{transform:rotate(90deg)}
+.ac details.sv summary span{margin-left:auto;background:#FDE7E7;color:var(--rojo);border-radius:99px;padding:1px 9px;font-size:.78rem}
+.ac details.sv ul{padding:0 18px 14px;max-height:320px;overflow:auto}
+.ac details.sv li{padding:6px 0;border-top:1px solid #F1F3F6;color:var(--ink)}.ac details.sv li::before{display:none}
+.ac details.sv li small{display:block;color:var(--ink2);font-size:.8rem}
 @media (max-width:1100px){.r2{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:600px){.cum{grid-template-columns:minmax(0,1fr) 80px 56px;gap:10px}.gh span{white-space:normal;text-align:right}}
 /* contraseña para entrar (pedido de Bruno, 20/10/2026) */
@@ -716,12 +725,12 @@ const f1=n=>n==null? '—' : n.toLocaleString('es-AR',{maximumFractionDigits:1})
 function medir(v,dia){
   const g=v.g, pas= g? new Set(g.vis.map(x=>x.cli)) : null, R=v.ruta.length;
   const at=v.ruta.filter(k=>v.comp.has(codigo(k[0]))||(pas&&pas.has(codigoCli(k[0])))).length;
-  const noPaso= pas? v.ruta.filter(k=>!pas.has(codigoCli(k[0]))&&!v.comp.has(codigo(k[0]))).length : null;
+  const noPasoL= pas? v.ruta.filter(k=>!pas.has(codigoCli(k[0]))&&!v.comp.has(codigo(k[0]))) : null, noPaso= noPasoL? noPasoL.length : null;
   const sinPaso= pas&&pas.size? [...v.comp.keys()].filter(c=>!pas.has(c)).length : null;
   const tiempos= g? g.vis.filter(x=>x.visito).map(x=>minDe(x.tiempo)).filter(x=>x!=null&&x>0) : [];
   const porVis= tiempos.length? tiempos.reduce((a,b)=>a+b,0)/tiempos.length : null;
   const tr= g? trayecto(v) : [], km= tr.length>1? kmDe(tr) : null;
-  const m={at, R, cum: R? at/R : null, noPaso, sinPaso, porVis, km, visitas: pas? pas.size : null, ini: g&&g.jor? g.jor.ini : '', fin: g&&g.jor? g.jor.fin : '', av:[]};
+  const m={at, R, cum: R? at/R : null, noPaso, noPasoL, sinPaso, porVis, km, visitas: pas? pas.size : null, ini: g&&g.jor? g.jor.ini : '', fin: g&&g.jor? g.jor.fin : '', av:[]};
   const A=(s,t,d)=>m.av.push({s,t,d}), hoy=isoDia(dia)===new Date().toLocaleDateString('sv-SE');
   if(R && v.pedidos===0) A('g','Sin pedidos cargados.',`Tiene ${R} clientes en la ruta del día.`);
   if(m.cum!=null && m.cum<.6 && v.pedidos>0) A('g','Cumplió poco de su ruta.',`Atendió ${at} de ${R} clientes (${fmtP(m.cum)}), contando los que tienen pedido${pas? ' y todos aquellos por cuya puerta lo registra el GPS' : ''}.`);
@@ -736,6 +745,9 @@ function medir(v,dia){
   m.gr=m.av.filter(a=>a.s==='g').length; m.avi=m.av.filter(a=>a.s==='a').length;
   return m;
 }
+// solapas "Sin visita GPS" abiertas (quedan abiertas cuando la pagina se redibuja)
+const SVab=new Set();
+document.addEventListener('toggle',e=>{ const d=e.target; if(d.matches&&d.matches('details.sv')) d.open? SVab.add(d.dataset.sv) : SVab.delete(d.dataset.sv); },true);
 const avaV=v=>`<span class="ava" style="background:${v.col}">${esc(inic(v.n))}</span>`;
 const verVend=c=>{ $('vSel').value=String(c); verPanel('vend'); dibujar(); $('vDetT').scrollIntoView({behavior:'smooth',block:'start'}); };
 function dibujar(){
@@ -792,7 +804,11 @@ function dibujar(){
   const DOT={g:'var(--rojo)',a:'var(--naranja)',i:'#9AA3B2'}, mir=V.filter(v=>M.get(v.c).av.length).sort((a,b)=>M.get(b.c).gr-M.get(a.c).gr||M.get(b.c).av.length-M.get(a.c).av.length);
   $('lAdv').innerHTML= mir.length? `<div class="gh mir"><b>${mir.length} vendedor${mir.length>1?'es':''} para mirar</b><i></i><span>tocá el nombre para abrir</span></div><div class="cards">`+
     mir.map(v=>{ const m=M.get(v.c); return `<div class="ac"><button type="button" class="hd" data-vv="${v.c}">${avaV(v)}<span class="nmv"><b>${esc(v.n)}</b><small>#${v.c}</small></span><span class="n">${m.av.length}</span></button>`+
-      `<ul>${m.av.map(a=>`<li style="--d:${DOT[a.s]}"><b>${esc(a.t)}</b> ${a.d}</li>`).join('')}</ul></div>`; }).join('')+'</div>'
+      `<ul>${m.av.map(a=>`<li style="--d:${DOT[a.s]}"><b>${esc(a.t)}</b> ${a.d}</li>`).join('')}</ul>`+
+      // clientes de la ruta por los que no paso (sin visita del GPS ni pedido), en una solapa que se despliega (pedido de Bruno, 22/10/2026)
+      (m.noPasoL&&m.noPasoL.length? `<details class="sv" data-sv="${v.c}"${SVab.has(String(v.c))?' open':''}><summary>Sin visita GPS <span>${m.noPasoL.length}</span></summary><ul>${
+        m.noPasoL.map(k=>`<li><b>${esc(k[0])}</b> ${esc(titulo(k[1]))}<small>${esc(titulo(k[2]||''))}${k[3]? ' · '+esc(titulo(k[3])) : ''}</small></li>`).join('')}</ul></details>` : '')+
+      `</div>`; }).join('')+'</div>'
     : '<div class="card vacio">Sin advertencias para este día.</div>';
   // Vendedores: tarjetas por supervisor; tocando una se abre el detalle de sus clientes
   $('vCards').innerHTML=grupos.map(G=>`<div class="gh"><b>${esc(G.n)}</b><i></i><span>${G.V.length} vendedores · cumplieron el ${fmtP(cumG(G.V))}</span></div><div class="cards">`+
