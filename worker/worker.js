@@ -329,7 +329,19 @@ export default {
       }
       if (ruta === '/prev-forma') {
         const d = await llamarPrev(env, url.searchParams.get('cmd'), url.searchParams.get('webmethod'), extrasDe(url));
-        return json(req, { ok: true, forma: forma(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : d)), claves: d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : null });
+        // los mensajes de error de Axum (error/message/mensaje) se muestran tal cual: no son datos y dicen que parametro falta
+        const aviso = d && typeof d === 'object' && !Array.isArray(d) ? ['error', 'message', 'mensaje', 'Message'].filter(k => typeof d[k] === 'string').map(k => `${k}: ${d[k].slice(0, 300)}`).join(' | ') : '';
+        return json(req, { ok: true, forma: forma(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : d)), claves: d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : null, aviso: aviso || null });
+      }
+      if (ruta === '/prev-menu') {
+        // pantallas del menu de Axum Preventa (solo los nombres de cmd y su titulo, sin datos)
+        const cookie = await entrarPrev(env);
+        const r = await fetch(PREV + '/controllerView.aspx?cmd=VerPedidosAgrupados', { headers: { ...NAVP, 'Cookie': cookie } });
+        const html = await r.text(), out = {};
+        for (const m of html.matchAll(/<a[^>]+href="[^"]*cmd=([A-Za-z0-9_]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi)) {
+          const t = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); if (!out[m[1]]) out[m[1]] = t; }
+        for (const m of html.matchAll(/cmd=([A-Za-z0-9_]+)/g)) if (!(m[1] in out)) out[m[1]] = '';
+        return json(req, { ok: true, pantallas: out });
       }
       if (ruta === '/clientes-forma') {
         const v = (url.searchParams.get('vendedor') || '2').replace(/\D/g, '').slice(0, 4) || '2', d = await clientesDe(env, v);
