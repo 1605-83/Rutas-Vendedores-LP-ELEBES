@@ -120,6 +120,16 @@ tr.fila{cursor:pointer}tr.fila:hover td{background:#F6F9FF}
 aside .selv{display:block;margin-top:12px;padding:12px 8px 0;border-top:1px solid rgba(255,255,255,.25);font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#CFE0F7}
 aside .selv select{display:block;width:100%;margin-top:6px;font-size:.88rem;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink)}
 @media (max-width:900px){aside .selv{flex:1 0 100%;margin-top:6px;padding:6px 0 2px}}
+/* buscar cliente o direccion en el mapa (pedido de Bruno, 22/10/2026) */
+.rbus{position:relative;margin:0 0 10px}.rbus input{width:100%}
+.rbus .res{position:absolute;left:0;right:0;top:100%;z-index:1200;list-style:none;margin:4px 0 0;padding:0;max-height:340px;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(20,26,38,.15)}
+.rbus .res:empty{display:none}
+.rbus .res li{display:grid;grid-template-columns:12px 1fr;gap:10px;align-items:start;padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;font-size:.88rem}
+.rbus .res li:hover,.rbus .res li:focus{background:#F1F5FD;outline:none}
+.rbus .res .sw{width:12px;height:12px;border-radius:50%;margin-top:4px}.rbus .res small{color:var(--ink2)}.rbus .res .dir{color:var(--azul);font-weight:600}
+.rbus .res .vacio{display:block;color:var(--ink2);padding:8px 12px;font-size:.86rem}
+.pulso{border-radius:50%;border:3px solid #d93025;animation:pulso 1.2s ease-out 4}
+@keyframes pulso{from{transform:scale(.4);opacity:1}to{transform:scale(1.6);opacity:0}}
 [hidden]{display:none!important}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
@@ -234,6 +244,7 @@ aside .selv select{display:block;width:100%;margin-top:6px;font-size:.88rem;font
         <div class="rbar"><b>Rutas</b><span class="rdias" id="rDias" role="group" aria-label="Día de la ruta"></span>
           <label title="Tildado, cada día se prende y se apaga para ver varias rutas juntas"><input type="checkbox" id="rComb"> Combinar días</label>
           <label><input type="checkbox" id="rZona" checked> Zonas</label><span id="rInfo"></span></div>
+        <div class="rbus"><input id="rQ" type="search" placeholder="Buscar cliente (nombre o código) o dirección" autocomplete="off" aria-label="Buscar cliente o dirección"><ul class="res" id="rRes"></ul></div>
         <div class="card"><div id="mapa"></div></div>
       </div>
       <h2>Ruta de hoy por vendedor</h2>
@@ -585,6 +596,67 @@ function pintarMapa(){
   setTimeout(()=>mapa.invalidateSize(),60);
   $('gpsInfo').textContent=`${pts.length} de ${VEND.length} vendedores en el mapa · posición actual y trayecto del día en puntos negros${V.some(v=>v.g&&v.g.rec)? '' : ' (armado con los clientes visitados; tildá un vendedor para ver su recorrido del GPS)'} · Axum GPS leído a las ${GPS.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} (se actualiza solo cada 5 minutos)${otros.length? ` · en gris, ${otros.length} códigos de GPS que no son de los 23 vendedores` : ''}`;
 }
+
+// ---- Buscar cliente (nombre, codigo o direccion de la cartera) y direcciones en el mapa (pedido de Bruno, 22/10/2026) ----
+const normB=s=>String(s??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+let idxB=null, idxCart=null, marcaB=null, pinB=null;
+function indiceB(){ if(idxB&&idxCart===CART) return idxB; idxCart=CART; idxB=[];
+  if(CART&&CART.v) for(const c of VEND) for(const k of (CART.v[String(c)]||[])) idxB.push({c,k,s:normB(k[0]+' '+k[1]+' '+(k[2]||'')+' '+(k[3]||''))});
+  return idxB; }
+const posB=c=>UBI.get(c)||(CLIPOS&&CLIPOS.get(c)&&[CLIPOS.get(c).lat,CLIPOS.get(c).lng])||(POSB&&POSB.get(c)&&POSB.get(c).slice(0,2))||null;
+function resaltarB(la,lo){ if(marcaB) mapa.removeLayer(marcaB);
+  marcaB=L.marker([la,lo],{interactive:false,icon:L.divIcon({className:'',html:'<div class="pulso" style="width:34px;height:34px"></div>',iconSize:[34,34],iconAnchor:[17,17]})}).addTo(mapa); }
+function irClienteB(x){
+  const l=String(x.k[5]||'')[0]; if(l&&NDIA[l]&&!rDia.includes(l)) rDia=l;   // se muestra la ruta del dia de ese cliente
+  rVend=''; rAjustar=false; pintarMapa();
+  const c=codigo(x.k[0]), p=posB(c); $('rRes').innerHTML='';
+  if(!p){ $('rRes').innerHTML='<span class="vacio">Ese cliente no tiene ubicación en Axum ni en el mapa de clientes.</span>'; return; }
+  mapa.setView(p,17,{animate:false}); resaltarB(p[0],p[1]);
+  capaR.eachLayer(m=>{ if(m.getPopup&&m.getPopup()&&m.getLatLng){ const g=m.getLatLng(); if(Math.abs(g.lat-p[0])<1e-9&&Math.abs(g.lng-p[1])<1e-9) m.openPopup(); } });
+  $('mapa').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function buscarDirB(txt){
+  const ul=$('rRes'), li=ul.querySelector('.dir-li'); if(li) li.innerHTML='<span></span><span><small>Buscando la dirección…</small></span>';
+  try{
+    let la,lo,nom;
+    // 1) OpenStreetMap (Photon), limitado al conurbano sur
+    const j=await (await fetch('https://photon.komoot.io/api/?limit=5&bbox=-58.95,-35.25,-57.95,-34.45&q='+encodeURIComponent(txt))).json();
+    // la calle encontrada tiene que contener la palabra principal buscada (evita "calle 14" -> "calle 154")
+    const tk=normB(txt.split(',')[0]).split(' '); let hn=-1; tk.forEach((w,i)=>{ if(/^\d+$/.test(w)&&i>0) hn=i; });
+    const calle=(hn>0?tk.slice(0,hn):tk).join(' ').replace(/^(calle|avenida|av|avda)\s+/,'');
+    const clave=/^\d+[a-z]?$/.test(calle)? calle : (calle.split(' ').filter(w=>w.length>=2&&!['de','del','la','las','los','el','y'].includes(w)).sort((a,b)=>b.length-a.length)[0]||'');
+    const coincide=s=>!clave||(' '+normB(s)+' ').includes(' '+clave+' ');
+    const f=(j.features||[]).find(q=>coincide(q.properties.street||q.properties.name));
+    if(f){ [lo,la]=f.geometry.coordinates; const p=f.properties; nom=[p.street||p.name,p.housenumber].filter(Boolean).join(' ')+', '+(p.city||p.district||p.county||''); }
+    else {
+      // 2) Registro oficial de calles (Georef): "calle altura, localidad"
+      const [dir,...resto]=txt.split(','), loc=resto.join(',').trim();
+      const g=await (await fetch('https://apis.datos.gob.ar/georef/api/direcciones?max=1&provincia=Buenos%20Aires&direccion='+encodeURIComponent(dir.trim())+(loc?'&departamento='+encodeURIComponent(loc):''))).json();
+      const d=g.direcciones&&g.direcciones.find(q=>q.ubicacion&&q.ubicacion.lat!=null&&coincide(q.calle&&q.calle.nombre||q.nomenclatura));
+      if(d){ la=d.ubicacion.lat; lo=d.ubicacion.lon; nom=d.nomenclatura; }
+    }
+    if(la==null){ if(li) li.innerHTML='<span></span><span><small>No se encontró esa dirección. Probá con calle y altura, por ejemplo «Mitre 1729 Avellaneda».</small></span>'; return; }
+    if(pinB) mapa.removeLayer(pinB);
+    pinB=L.marker([la,lo],{icon:L.divIcon({className:'',html:'<div style="font-size:30px;line-height:1;transform:translate(-50%,-100%)">📍</div>',iconSize:[0,0]})}).bindPopup('<b>'+esc(nom)+'</b><br><small>Dirección buscada</small>').addTo(mapa).openPopup();
+    mapa.setView([la,lo],17,{animate:false}); resaltarB(la,lo); $('mapa').scrollIntoView({behavior:'smooth',block:'center'});
+    if(li) li.innerHTML='<span></span><span class="dir">📍 '+esc(nom)+'</span>';
+  }catch(e){ if(li) li.innerHTML='<span></span><span><small>No se pudo buscar la dirección (revisá la conexión a internet).</small></span>'; }
+}
+function resultadosB(){
+  const txt=$('rQ').value, t=normB(txt), ul=$('rRes');
+  if(t.length<2){ ul.innerHTML=''; return; }
+  const ws=t.split(' '), hits=indiceB().filter(q=>ws.every(w=>q.s.includes(w))).slice(0,40);
+  let h=hits.map((q,i)=>{ const k=q.k, col=COLORES[VEND.indexOf(q.c)%COLORES.length], l=String(k[5]||'')[0];
+    return `<li tabindex="0" data-i="${i}"><span class="sw" style="background:${col}"></span><span><b>${esc(titulo(k[1]))}</b> <small>· cód. ${esc(k[0])}</small><br><small>${esc(titulo(k[2]||''))}${k[3]? ' · '+esc(titulo(k[3])) : ''}<br>${l&&NDIA[l]? NDIA[l][0].toUpperCase()+NDIA[l].slice(1) : 'Sin día de visita'} · vendedor ${q.c} ${esc(NOMV[q.c]||'')}</small></span></li>`; }).join('');
+  if(!hits.length) h='<span class="vacio">Ningún cliente coincide.</span>';
+  if(/\d/.test(txt)||!hits.length) h+=`<li tabindex="0" class="dir-li"><span></span><span class="dir">📍 Buscar «${esc(txt)}» como dirección en el mapa</span></li>`;
+  ul.innerHTML=h;
+  ul.querySelectorAll('li').forEach(li=>{ const go=()=>{ if(li.classList.contains('dir-li')) buscarDirB(txt); else irClienteB(hits[+li.dataset.i]); };
+    li.onclick=go; li.onkeydown=e=>{ if(e.key==='Enter') go(); }; });
+}
+$('rQ').addEventListener('input',resultadosB);
+$('rQ').addEventListener('keydown',e=>{ if(e.key==='Enter'){ const f=document.querySelector('#rRes li'); if(f) f.click(); } if(e.key==='Escape') $('rRes').innerHTML=''; });
+document.addEventListener('click',e=>{ if(!e.target.closest('.rbus')) $('rRes').innerHTML=''; });
 
 function parseCSV(t){
   const rows=[]; let row=[], f='', q=false;
