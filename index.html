@@ -588,7 +588,8 @@ function pintarMapa(){
     // trayecto en puntos negros (pedido de Bruno, 20/10/2026)
     L.polyline(t,{color:'#000',weight:5,opacity:.9,dashArray:'0 9',lineCap:'round'}).addTo(capa).bindTooltip(`Trayecto de ${v.c} · ${esc(v.n)}`,{sticky:true});
     L.circleMarker(t[0],{radius:6,color:'#000',weight:2,fillColor:'#fff',fillOpacity:1}).addTo(capa).bindTooltip(`Inicio del trayecto de ${v.c}${v.g.ini? ' · '+esc(v.g.ini) : ''}`); }
-  for(const v of V){ if(rVend&&String(v.c)!==rVend) continue; const p=v.g&&v.g.pos; if(!p) continue;
+  const hoyG=isoDia(GPS.dia)===new Date().toLocaleDateString('sv-SE');   // dia anterior: historial, sin la posicion de ahora
+  for(const v of V){ if(!hoyG||(rVend&&String(v.c)!==rVend)) continue; const p=v.g&&v.g.pos; if(!p) continue;
     const hace=p.min==null? null : ahora-p.min, viejo=hace==null||hace>15;
     const icono=L.divIcon({className:'',html:`<div class="cam${viejo?' viejo':''}" style="--c:${v.col}" title="${viejo? 'Sin señal reciente' : 'Transmitiendo'}"><span class="fig"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg></span><b>${v.c}</b></div>`,iconSize:[40,44],iconAnchor:[20,42],popupAnchor:[0,-38]});
     L.marker([p.lat,p.lng],{icon:icono,title:`${v.c} · ${v.n}`}).addTo(capa)
@@ -598,12 +599,14 @@ function pintarMapa(){
     pts.push([p.lat,p.lng]); }
   // codigos del GPS que no son de los 23 vendedores (otros equipos o un codigo distinto al de Gescom): en gris, con su codigo
   const otros=Object.keys(GPS.pos).filter(c=>!VEND.includes(+c));
-  if(!rVend) for(const c of otros){ const p=GPS.pos[c];
+  if(!rVend&&hoyG) for(const c of otros){ const p=GPS.pos[c];
     L.marker([p.lat,p.lng],{icon:L.divIcon({className:'',html:`<div class="pin viejo" style="background:#8A94A6">${esc(c)}</div>`,iconSize:[30,30],iconAnchor:[15,15]}),title:'Código GPS '+c})
       .addTo(capa).bindPopup(`<b>Código GPS ${esc(c)}</b><br>No es de los 23 vendedores del panel<br>Última señal: ${esc(p.hora)}`); }
   if(pts.length && !mapaAjustado){ mapa.fitBounds(pts,{padding:[30,30],maxZoom:14}); mapaAjustado=true; }
   if(!pts.length && !mapaAjustado) mapa.setView([-34.75,-58.3],11);
   setTimeout(()=>mapa.invalidateSize(),60);
+  if(!hoyG){ const n=V.filter(v=>trayecto(v).length>1).length;
+    $('gpsInfo').textContent=`Historial del ${GPS.dia.replace(/-/g,'/')}: trayecto de ${n} vendedor${n===1?'':'es'} en puntos negros, armado con los clientes que visitaron ese día según Axum GPS (tildá un vendedor para ver su recorrido del GPS) · para volver a hoy, elegí hoy en la fecha de arriba`; return; }
   $('gpsInfo').textContent=`${pts.length} de ${VEND.length} vendedores en el mapa · posición actual y trayecto del día en puntos negros${V.some(v=>v.g&&v.g.rec)? '' : ' (armado con los clientes visitados; tildá un vendedor para ver su recorrido del GPS)'} · Axum GPS leído a las ${GPS.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} (se actualiza solo cada 5 minutos)${otros.length? ` · en gris, ${otros.length} códigos de GPS que no son de los 23 vendedores` : ''}`;
 }
 
