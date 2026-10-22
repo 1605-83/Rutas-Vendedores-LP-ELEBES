@@ -368,10 +368,11 @@ async function cargarPrev(){
     const vend={}, pend=[];
     for(const v of ((vs.datos&&vs.datos.vendedores)||[])){ const c=codigo(v.vendedorId); if(!VEND.includes(+c)) continue;
       const ops=+v.operaciones||0, tot=+v.total||0, ant=prevCache[dia+'|'+c];
-      vend[c]={total:tot,ops,cant:+v.cantClientes||0,clientes: ant&&ant.ops===ops&&ant.tot===tot? ant.clientes : null};
+      vend[c]={id:String(v.vendedorId).trim(),total:tot,ops,cant:+v.cantClientes||0,clientes: ant&&ant.ops===ops&&ant.tot===tot? ant.clientes : null};
       if(!vend[c].clientes) pend.push(c); }
     for(let i=0;i<pend.length;i+=4) await Promise.all(pend.slice(i,i+4).map(async c=>{
-      const r=await pedirGPS(`/ventas?webmethod=SelectClientesDeVendedor&vendedor=${c}&`+q).catch(()=>null), cl=new Map();
+      // Axum pide el vendedor como lo da en la lista ("051"): con "51" devuelve la lista vacia y todos quedaban sin pedido
+      const r=await pedirGPS(`/ventas?webmethod=SelectClientesDeVendedor&vendedor=${encodeURIComponent(vend[c].id)}&`+q).catch(()=>null), cl=new Map();
       for(const x of ((r&&Array.isArray(r.datos))? r.datos : [])) cl.set(codigo(x.clienteId),{total:+x.total||0,ops:+x.operaciones||0,rs:x.razonSocial||''});
       vend[c].clientes=cl; if(r) prevCache[dia+'|'+c]={ops:vend[c].ops,tot:vend[c].total,clientes:cl}; }));
     PREVD={dia,vend,ind:ind.datos||{},hora:new Date()}; prevErr='';
