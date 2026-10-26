@@ -586,10 +586,11 @@ function pintarMapa(){
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(mapa);
     // Compartir ubicacion (pedido de Bruno, 26/10/2026): cada globito del mapa (cliente, vendedor, direccion buscada) suma un boton
     // que manda el punto como enlace de Google Maps (menu Compartir del celular; en la compu abre WhatsApp)
-    mapa.on('popupopen',e=>{ const s=e.popup._source, ll=s&&s.getLatLng? s.getLatLng() : e.popup.getLatLng(), el=e.popup.getElement()&&e.popup.getElement().querySelector('.leaflet-popup-content');
-      if(!ll||!el||el.querySelector('.compUb')) return;
-      el.insertAdjacentHTML('beforeend','<br><button type="button" class="compUb" style="margin-top:6px;font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;color:#fff;background:#25D366;border:0;border-radius:8px;padding:5px 10px">📤 Compartir ubicación</button>');
-      el.querySelector('.compUb').onclick=()=>compartirUbic(ll.lat,ll.lng,(el.querySelector('b')||{}).textContent||'Ubicación'); e.popup.update(); }); }
+    mapa.on('popupopen',e=>{ const s=e.popup._source, ll=s&&s.getLatLng? s.getLatLng() : e.popup.getLatLng(), c=e.popup.getContent();
+      if(!ll||typeof c!=='string'||c.includes('compUb')) return;
+      const d=document.createElement('div'); d.innerHTML=c; const tit=((d.querySelector('b')||d).textContent||'Ubicación').trim();
+      e.popup.setContent(c+`<br><button type="button" class="compUb" data-la="${ll.lat}" data-lo="${ll.lng}" data-tit="${esc(tit)}" style="margin-top:6px;font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;color:#fff;background:#25D366;border:0;border-radius:8px;padding:5px 10px">📤 Compartir ubicación</button>`); });
+    document.addEventListener('click',e=>{ const b=e.target.closest&&e.target.closest('.compUb'); if(b) compartirUbic(+b.dataset.la,+b.dataset.lo,b.dataset.tit); }); }
   capa.clearLayers(); const pts=[], ahora=minAhora(), V=calcular($('dia').value);
   const ruta=pintarRutas(V,$('dia').value)||[];
   if(ruta.length&&rAjustar){ mapa.fitBounds(ruta,{padding:[30,30],maxZoom:15}); rAjustar=false; mapaAjustado=true; }
