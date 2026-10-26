@@ -575,10 +575,21 @@ function trayecto(v){
   if(g.pos&&GPS&&isoDia(GPS.dia)===new Date().toLocaleDateString('sv-SE')){ const u=t[t.length-1]; if(!u||u[0]!==g.pos.lat||u[1]!==g.pos.lng) t.push([g.pos.lat,g.pos.lng]); }
   return t;
 }
+async function compartirUbic(la,lo,tit){
+  const url=`https://www.google.com/maps?q=${la.toFixed(6)},${lo.toFixed(6)}`;
+  if(navigator.share){ try{ await navigator.share({title:tit,text:tit,url}); }catch(e){} return; }
+  window.open('https://wa.me/?text='+encodeURIComponent(tit+' '+url),'_blank','noopener');
+}
 function pintarMapa(){
   if(typeof L==='undefined'||$('gpsVista').hidden) return;
   if(!mapa){ mapa=L.map('mapa',{scrollWheelZoom:false}); capaR=L.layerGroup().addTo(mapa); capa=L.layerGroup().addTo(mapa);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(mapa); }
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(mapa);
+    // Compartir ubicacion (pedido de Bruno, 26/10/2026): cada globito del mapa (cliente, vendedor, direccion buscada) suma un boton
+    // que manda el punto como enlace de Google Maps (menu Compartir del celular; en la compu abre WhatsApp)
+    mapa.on('popupopen',e=>{ const s=e.popup._source, ll=s&&s.getLatLng? s.getLatLng() : e.popup.getLatLng(), el=e.popup.getElement()&&e.popup.getElement().querySelector('.leaflet-popup-content');
+      if(!ll||!el||el.querySelector('.compUb')) return;
+      el.insertAdjacentHTML('beforeend','<br><button type="button" class="compUb" style="margin-top:6px;font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;color:#fff;background:#25D366;border:0;border-radius:8px;padding:5px 10px">📤 Compartir ubicación</button>');
+      el.querySelector('.compUb').onclick=()=>compartirUbic(ll.lat,ll.lng,(el.querySelector('b')||{}).textContent||'Ubicación'); e.popup.update(); }); }
   capa.clearLayers(); const pts=[], ahora=minAhora(), V=calcular($('dia').value);
   const ruta=pintarRutas(V,$('dia').value)||[];
   if(ruta.length&&rAjustar){ mapa.fitBounds(ruta,{padding:[30,30],maxZoom:15}); rAjustar=false; mapaAjustado=true; }
