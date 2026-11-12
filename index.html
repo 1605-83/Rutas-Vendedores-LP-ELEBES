@@ -339,10 +339,21 @@ async function cargarGPS(){
   dibujar(); pintarMapa();
   if(g.status==='rejected'&&!$('gpsVista').hidden) $('gpsInfo').textContent='No se pudo actualizar Axum GPS: '+g.reason.message+' · la venta sigue en vivo desde Axum Preventa';
 }
+// 12/11/2026: el servicio a veces le pasa la fecha a Axum con dia y mes al reves (12/11 lo lee como 11/12 y viene vacio).
+// Se pide la fecha tal cual y, si dia y mes se pueden invertir, tambien invertida; se quedan solo los renglones de ese dia.
+const fechaDMY=s=>{ const m=String(s||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : ''; };
+async function porFecha(ruta,f,fechaDe){
+  const [y,m,d]=f.split('-'), alt=(+d<=12&&d!==m)? `${y}-${d}-${m}` : null;
+  const rs=await Promise.allSettled([f,alt].filter(Boolean).map(x=>pedirGPS(`${ruta}?fecha=${x}`)));
+  const ok=rs.filter(r=>r.status==='fulfilled').map(r=>r.value); if(!ok.length) throw rs[0].reason;
+  const datos=[], vistos=new Set();
+  for(const j of ok) for(const x of (j.datos||[])){ if(fechaDe(x)!==f) continue; const k=JSON.stringify(x); if(!vistos.has(k)){ vistos.add(k); datos.push(x); } }
+  return {ok:true,fecha:f,datos};
+}
 async function leerGPS(dia){
   {
     const f=isoDia(dia);
-    const [p,vi,jo]=await Promise.all([pedirGPS('/posiciones'),pedirGPS('/visitas?fecha='+f),pedirGPS('/jornada?fecha='+f)]);
+    const [p,vi,jo]=await Promise.all([pedirGPS('/posiciones'),porFecha('/visitas',f,x=>fechaDMY(x.horario)),porFecha('/jornada',f,x=>String(x.firstVisit||'').slice(0,10))]);
     // lastPositions: un texto por vendedor "lat,lng,codigo,hora,..."
     const pos={}; for(const s of (p.datos||[])){ const a=String(s).split(','), lat=parseFloat(a[0]), lng=parseFloat(a[1]);
       if(isFinite(lat)&&isFinite(lng)&&lat&&lng) pos[codigo(a[2])]={lat,lng,hora:(a[3]||'').trim(),min:minutosDe(a[3])}; }
