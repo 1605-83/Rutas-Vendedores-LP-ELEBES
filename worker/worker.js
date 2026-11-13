@@ -207,15 +207,32 @@ function recorrido(d) {
 // otro con una pausa, y se guarda 1 de cada 15 puntos (uno cada ~30 s)
 const pausa = ms => new Promise(r => setTimeout(r, ms));
 const hm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
-async function tramo(env, v, fecha, desde, hasta) {
-  const fmt = FORMATOS[formatoOk == null ? 0 : formatoOk](fecha);
+// formatoRec: el formato de fecha que anduvo para el recorrido (puede no ser el mismo que el de visitas/jornada)
+let formatoRec = null;
+async function tramo(env, v, fecha, desde, hasta, f = formatoRec ?? formatoOk ?? 0) {
+  const fmt = FORMATOS[f](fecha);
   return llamar(env, 'FindLocationsOfVendedorIdEnDiaFromTo', { idVendedor: v, from: fmt + ' ' + hm(desde), to: fmt + ' ' + hm(hasta) });
+}
+// 13/11/2026: el recorrido venia vacio y el panel mostraba solo la linea armada con las visitas. Si el ultimo tramo
+// del dia no trae puntos con el formato de fecha de siempre, se prueban los otros (uno por vez) y se recuerda el que anda
+async function formatoDelRecorrido(env, v, fecha, desde, hasta) {
+  const base = formatoRec ?? formatoOk ?? 0;
+  if (recorrido(await tramo(env, v, fecha, desde, hasta, base)).length) return base;
+  for (let i = 0; i < FORMATOS.length; i++) {
+    if (i === base) continue;
+    await pausa(400);
+    const p = recorrido(await tramo(env, v, fecha, desde, hasta, i).catch(() => null));
+    if (p.length) { formatoRec = i; return i; }
+  }
+  return base;
 }
 async function recorridoDe(env, v, fecha) {
   const ahora = new Date(Date.now() - 3 * 3600e3), fin = fecha === hoyAR() ? Math.min(20 * 60, ahora.getUTCHours() * 60 + ahora.getUTCMinutes()) : 20 * 60;
   const out = [];
+  if (fin <= 7 * 60) return out;
+  const f = await formatoDelRecorrido(env, v, fecha, Math.max(7 * 60, fin - 60), fin);
   for (let m = 7 * 60; m < fin; m += 120) {
-    const p = recorrido(await tramo(env, v, fecha, m, Math.min(m + 120, fin)));
+    const p = recorrido(await tramo(env, v, fecha, m, Math.min(m + 120, fin), f));
     for (let i = 0; i < p.length; i += 15) out.push(p[i]);
     if (p.length && (p.length - 1) % 15) out.push(p[p.length - 1]);
     await pausa(400);

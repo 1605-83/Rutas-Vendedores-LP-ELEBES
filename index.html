@@ -571,8 +571,12 @@ function listaVend(V){
 // recorrido del GPS de un vendedor (pedido de Bruno, 20/10/2026: ver el trayecto): solo del vendedor tildado, porque
 // pedirlo para todos carga el servidor de Axum; mientras llega (o si falla) se ve el armado con las visitas
 function cargarRec(c){
-  if(!GPS||c in GPS.rec) return; const G=GPS; G.rec[c]=null;
-  pedirGPS(`/recorrido?vendedor=${c}&fecha=${isoDia(G.dia)}`).then(r=>{ if(Array.isArray(r.datos)&&r.datos.length>1){ G.rec[c]=r.datos; if(GPS===G) pintarMapa(); } }).catch(()=>{});
+  if(!GPS||c in GPS.rec) return; const G=GPS; G.rec[c]=null; G.recErr=G.recErr||{}; G.recErr[c]='cargando el recorrido del GPS…';
+  // 13/11/2026: antes si fallaba o venia vacio no se avisaba nada y quedaba la linea armada con las visitas; ahora se dice por que
+  pedirGPS(`/recorrido?vendedor=${c}&fecha=${isoDia(G.dia)}`)
+    .then(r=>{ if(Array.isArray(r.datos)&&r.datos.length>1){ G.rec[c]=r.datos; delete G.recErr[c]; } else G.recErr[c]=`Axum GPS no devolvió puntos del recorrido de ${c} (${Array.isArray(r.datos)? r.datos.length : 0})`; })
+    .catch(e=>{ G.recErr[c]='no se pudo leer el recorrido del GPS: '+e.message; })
+    .finally(()=>{ if(GPS===G) pintarMapa(); });
 }
 // trayecto del vendedor: el recorrido del GPS si Axum lo da; si no, los clientes por los que paso en orden de hora
 // (linea punteada) hasta donde esta ahora
@@ -630,7 +634,7 @@ function pintarMapa(){
   setTimeout(()=>mapa.invalidateSize(),60);
   if(!hoyG){ const n=V.filter(v=>trayecto(v).length>1).length;
     $('gpsInfo').textContent=`Historial del ${GPS.dia.replace(/-/g,'/')}: trayecto de ${n} vendedor${n===1?'':'es'} en puntos negros, armado con los clientes que visitaron ese día según Axum GPS (tildá un vendedor para ver su recorrido del GPS) · para volver a hoy, elegí hoy en la fecha de arriba`; return; }
-  $('gpsInfo').textContent=`${pts.length} de ${VEND.length} vendedores en el mapa · posición actual y trayecto del día en puntos negros${V.some(v=>v.g&&v.g.rec)? '' : ' (armado con los clientes visitados; tildá un vendedor para ver su recorrido del GPS)'} · Axum GPS leído a las ${GPS.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} (se actualiza solo cada 5 minutos)${otros.length? ` · en gris, ${otros.length} códigos de GPS que no son de los 23 vendedores` : ''}`;
+  $('gpsInfo').textContent=`${pts.length} de ${VEND.length} vendedores en el mapa · posición actual y trayecto del día en puntos negros${V.some(v=>v.g&&v.g.rec)? '' : ' (armado con los clientes visitados; tildá un vendedor para ver su recorrido del GPS)'} · Axum GPS leído a las ${GPS.hora.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} (se actualiza solo cada 5 minutos)${rVend&&GPS.recErr&&GPS.recErr[rVend]? ' · '+GPS.recErr[rVend] : ''}${otros.length? ` · en gris, ${otros.length} códigos de GPS que no son de los 23 vendedores` : ''}`;
 }
 
 // ---- Buscar cliente (nombre, codigo o direccion de la cartera) y direcciones en el mapa (pedido de Bruno, 22/10/2026) ----
