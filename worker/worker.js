@@ -15,6 +15,8 @@
 //   GET /jornada?fecha=AAAA-MM-DD  con clave: primerUltimaVisitaAt (hora de inicio y fin)
 //   GET /clientes?vendedores=2,4,5 con clave: allClientsPositionByVendedor (donde esta cada cliente, para dibujar las rutas)
 //   GET /recorrido?vendedor=2&fecha=AAAA-MM-DD  con clave: FindLocationsOfVendedorIdEnDiaFromTo (por donde camino ese vendedor ese dia)
+//   GET /historial?fecha=AAAA-MM-DD con clave: recorridos guardados de los 23 vendedores ese dia (almacen KV "HIST")
+//   Cron (Settings > Triggers): "*/10 23,0,1,2 * * *" guarda el recorrido del dia de cada vendedor (20:00 a 23:50 hora AR)
 //   GET /recorrido-forma?vendedor=2 con clave: forma de un tramo corto (30 min) con los valores enmascarados
 //   GET /clientes-forma?vendedor=2 sin clave: forma de esa respuesta con los valores enmascarados
 // La clave del panel va en el encabezado "X-Clave".
@@ -240,6 +242,36 @@ async function recorridoDe(env, v, fecha) {
   return out;
 }
 
+// ---- Historial de recorridos (pedido de Bruno, 13/11/2026: tener grabado el trayecto de cada dia) ----
+// Se guarda en un almacen KV de Cloudflare conectado al worker con el nombre HIST, una entrada por vendedor y dia
+// ("rec:AAAA-MM-DD:vendedor"), sin vencimiento. Lo guarda el cron de la noche; un dia pasado que no este guardado
+// se pide a Axum la primera vez que alguien lo mira y queda grabado.
+// Los 23 vendedores de calle (los mismos que VEND del panel)
+const VEND = [2, 4, 5, 6, 7, 24, 26, 27, 28, 29, 30, 51, 52, 53, 54, 56, 61, 62, 63, 64, 73, 74, 75];
+const claveH = (v, f) => `rec:${f}:${v}`;
+async function recorridoConHistorial(env, v, fecha) {
+  if (!env.HIST || fecha >= hoyAR()) return recorridoDe(env, v, fecha);   // hoy todavia no termino
+  const g = await env.HIST.get(claveH(v, fecha), 'json');
+  if (g && g.length) return g;
+  const d = await recorridoDe(env, v, fecha);
+  if (d.length) await env.HIST.put(claveH(v, fecha), JSON.stringify(d));
+  return d;
+}
+// el plan gratis de Cloudflare deja 50 pedidos a otros servidores por vez: cada vendedor son ~10, se hacen 3 por vez
+async function guardarDia(env) {
+  if (!env.HIST) return;
+  const fecha = hoyAR(); let hechos = 0;
+  for (const v of VEND) {
+    if (hechos >= 3) break;
+    if (await env.HIST.get(claveH(v, fecha)) != null) continue;
+    hechos++;
+    try {
+      const d = await recorridoDe(env, String(v), fecha);
+      await env.HIST.put(claveH(v, fecha), JSON.stringify(d));   // vacio tambien: ese dia no transmitio, no se reintenta
+    } catch (e) { /* Axum no respondio: lo intenta la proxima pasada */ }
+  }
+}
+
 // Axum puede tener el vendedor como "2" o "002": si con uno no hay clientes se prueba el otro
 async function clientesDe(env, v) {
   let d = await llamar(env, 'allClientsPositionByVendedor', { idVendedor: v });
@@ -392,13 +424,24 @@ export default {
         // un vendedor por pedido; lo de hoy se guarda 10 minutos, un dia pasado 24 horas
         const v = (url.searchParams.get('vendedor') || '').replace(/\D/g, '').slice(0, 4);
         if (!v) return json(req, { ok: false, error: 'Falta el vendedor' }, 400);
-        const datos = await conCache('recorrido-' + v + '-' + fecha, () => recorridoDe(env, v, fecha), fecha === hoyAR() ? 600 : 24 * 3600);
+        const datos = await conCache('recorrido-' + v + '-' + fecha, () => recorridoConHistorial(env, v, fecha), fecha === hoyAR() ? 600 : 24 * 3600);
         return json(req, { ok: true, fecha, vendedor: v, datos });
+      }
+      if (ruta === '/historial') {
+        // recorridos guardados de todos los vendedores ese dia (solo lo guardado: no le pide nada a Axum)
+        if (!env.HIST) return json(req, { ok: false, error: 'Falta conectar el almacen HIST al worker' }, 503);
+        const datos = {};
+        await Promise.all(VEND.map(async v => { const d = await env.HIST.get(claveH(v, fecha), 'json'); if (d && d.length) datos[v] = d; }));
+        return json(req, { ok: true, fecha, datos });
       }
       if (ruta === '/jornada') return json(req, { ok: true, fecha, datos: await conCache('jornada-' + fecha, () => conFecha(env, 'primerUltimaVisitaAt', fecha)) });
       return json(req, { ok: false, error: 'Ruta desconocida' }, 404);
     } catch (e) {
       return json(req, { ok: false, error: String(e.message || e) }, 502);
     }
+  },
+  // cada 10 minutos de 20:00 a 23:50 (hora AR): guarda el recorrido del dia de los que todavia no estan guardados
+  async scheduled(evento, env, ctx) {
+    ctx.waitUntil(guardarDia(env));
   },
 };
